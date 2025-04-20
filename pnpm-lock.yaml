@@ -16,9 +16,6 @@ importers:
       '@sxzz/prettier-config':
         specifier: ^2.2.1
         version: 2.2.1
-      '@types/node':
-        specifier: ^22.14.1
-        version: 22.14.1
       bumpp:
         specifier: ^10.1.0
         version: 10.1.0
@@ -2772,6 +2769,7 @@ snapshots:
   '@types/node@22.14.1':
     dependencies:
       undici-types: 6.21.0
+    optional: true
 
   '@types/normalize-package-data@2.4.4': {}
 
@@ -4456,7 +4454,8 @@ snapshots:
       jiti: 2.4.2
       quansync: 0.2.10
 
-  undici-types@6.21.0: {}
+  undici-types@6.21.0:
+    optional: true
 
   unicorn-magic@0.1.0: {}
 
