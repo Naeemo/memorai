@@ -1,0 +1,53 @@
+{
+  "name": "memorai",
+  "version": "0.0.0",
+  "description": "Browser local memory for AI agents",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/Naeemo/memorai#readme",
+  "bugs": {
+    "url": "https://github.com/Naeemo/memorai/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Naeemo/memorai.git"
+  },
+  "author": "Naeemo <naeemo@qq.com>",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "lint": "eslint --cache .",
+    "lint:fix": "pnpm run lint --fix",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --cache --write .",
+    "release": "bumpp && pnpm publish",
+    "prepublishOnly": "pnpm run build"
+  },
+  "devDependencies": {
+    "@sxzz/eslint-config": "^6.1.1",
+    "@sxzz/prettier-config": "^2.2.1",
+    "@types/node": "^22.14.1",
+    "bumpp": "^10.1.0",
+    "eslint": "^9.24.0",
+    "prettier": "^3.5.3",
+    "tsdown": "^0.8.0-beta.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  },
+  "prettier": "@sxzz/prettier-config"
+}
