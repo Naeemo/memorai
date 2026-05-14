@@ -1,0 +1,15 @@
+{
+  "name": "@memorai/docs",
+  "version": "0.0.0",
+  "description": "Memorai documentation site (VitePress)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev docs",
+    "build": "vitepress build docs",
+    "preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}

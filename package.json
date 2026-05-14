@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "docs:dev": "pnpm --filter @memorai/docs dev",
+    "docs:build": "pnpm --filter @memorai/docs build",
+    "docs:preview": "pnpm --filter @memorai/docs preview"
   },
   "keywords": [],
   "author": "Naeemo <naeemo@qq.com>",
