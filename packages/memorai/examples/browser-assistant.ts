@@ -8,50 +8,46 @@
  * what they clicked, and what they typed — across sessions.
  */
 
-import { IndexedDBAdapter, Memorai, OpenAIEmbeddingService } from 'memorai'
+import { IndexedDBAdapter, Memorai, OpenAIEmbeddingService } from "memorai";
 
 // ─── 1. Initialize ───
 
 const memory = new Memorai({
-  storage: new IndexedDBAdapter({ dbName: 'browser-assistant' }),
+  storage: new IndexedDBAdapter({ dbName: "browser-assistant" }),
   embedding: new OpenAIEmbeddingService({
-    apiKey: 'your-openai-key',
-    model: 'text-embedding-3-small',
+    apiKey: "your-openai-key",
+    model: "text-embedding-3-small",
   }),
   agentProfile: {
-    agentId: 'browser-assistant',
-    role: 'reasoning',
+    agentId: "browser-assistant",
+    role: "reasoning",
     writePolicy: {
-      levels: ['segment', 'atomic_action', 'event'],
-      modalities: ['text', 'vision'],
+      levels: ["segment", "atomic_action", "event"],
+      modalities: ["text", "vision"],
       salienceBoost: 1,
     },
     readPolicy: {
-      defaultLevel: 'event',
-      defaultTraversal: 'reverse',
+      defaultLevel: "event",
+      defaultTraversal: "reverse",
       timeHorizonMs: 7 * 24 * 60 * 60 * 1000, // 1 week
     },
   },
-})
+});
 
 // ─── 2. Record page visits ───
 
-async function recordPageVisit(
-  url: string,
-  title: string,
-  screenshot?: ImageData,
-) {
+async function recordPageVisit(url: string, title: string, screenshot?: ImageData) {
   await memory.write({
     timestamp: Date.now(),
     payload: {
       summary: `Visited page: ${title}`,
       description: `URL: ${url}`,
-      tags: ['page-visit', ...extractDomainTags(url)],
+      tags: ["page-visit", ...extractDomainTags(url)],
       salienceScore: 0.6,
-      modality: screenshot ? ['text', 'vision'] : ['text'],
+      modality: screenshot ? ["text", "vision"] : ["text"],
       media: screenshot ? { frames: [screenshot] } : undefined,
     },
-  })
+  });
 }
 
 // ─── 3. Record user actions ───
@@ -61,61 +57,61 @@ async function recordClick(elementText: string, context: string) {
     payload: {
       summary: `Clicked: ${elementText}`,
       description: context,
-      tags: ['click', 'interaction'],
+      tags: ["click", "interaction"],
       salienceScore: 0.5,
-      modality: ['text'],
+      modality: ["text"],
     },
-  })
+  });
 }
 
 // ─── 4. Ask the assistant ───
 
 async function ask(question: string) {
   const result = await memory.retrieve({
-    strategy: 'factual',
+    strategy: "factual",
     text: question,
     topK: 10,
-  })
+  });
 
   // Build context for LLM
   const context = result.nodes
     .map((n) => `[${new Date(n.timestamp).toISOString()}] ${n.payload.summary}`)
-    .join('\n')
+    .join("\n");
 
   return {
     answer: `Based on your recent activity...`, // LLM call here
     context,
     sources: result.nodes,
-  }
+  };
 }
 
 // ─── 5. Ask about recent activity ───
 
 async function summarizeToday() {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   const result = await memory.retrieve({
-    strategy: 'temporal',
+    strategy: "temporal",
     timeRange: {
       start: today.getTime(),
       end: Date.now(),
     },
-    traversalOrder: 'forward',
+    traversalOrder: "forward",
     topK: 20,
-  })
+  });
 
-  return result.nodes.map((n) => n.payload.summary)
+  return result.nodes.map((n) => n.payload.summary);
 }
 
 // ─── Helpers ───
 
 function extractDomainTags(url: string): string[] {
   try {
-    const host = new URL(url).hostname
-    return [host.replace(/^www\./, '')]
+    const host = new URL(url).hostname;
+    return [host.replace(/^www\./, "")];
   } catch {
-    return []
+    return [];
   }
 }
 
@@ -123,19 +119,19 @@ function extractDomainTags(url: string): string[] {
 
 async function main() {
   await recordPageVisit(
-    'https://github.com/Naeemo/memorai',
-    'Naeemo/memorai: Streaming memory for AI agents',
-  )
+    "https://github.com/Naeemo/memorai",
+    "Naeemo/memorai: Streaming memory for AI agents",
+  );
 
-  await recordClick('README.md', 'Navigated to README in the memorai repo')
+  await recordClick("README.md", "Navigated to README in the memorai repo");
 
-  const summary = await summarizeToday()
-  console.log('Today you:', summary.join('; '))
+  const summary = await summarizeToday();
+  console.log("Today you:", summary.join("; "));
 
-  const { context } = await ask('What repos did I look at today?')
-  console.log('Context for LLM:', context)
+  const { context } = await ask("What repos did I look at today?");
+  console.log("Context for LLM:", context);
 
-  await memory.close()
+  await memory.close();
 }
 
-main().catch(console.error)
+main().catch(console.error);

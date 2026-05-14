@@ -1,2 +1,2 @@
-export { OpenAIEmbeddingService } from './openai.js'
-export { OllamaEmbeddingService } from './ollama.js'
+export { OpenAIEmbeddingService } from "./openai.js";
+export { OllamaEmbeddingService } from "./ollama.js";
