@@ -96,6 +96,32 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 
 ---
 
+## Benchmarks
+
+Memorai is continuously evaluated against a suite of memory-specific benchmarks. Results are run locally against Ollama models.
+
+**Latest run:** 2026-05-15  
+**Models:** `nomic-embed-text` (embeddings) · `gemma4:31b-cloud` (LLM judge)
+
+| Benchmark | Score | What it tests |
+|---|---|---|
+| Needle-in-a-Haystack | 100% | Retrieve a specific fact from 250 distractor memories |
+| Multi-Needle Retrieval | 100% | Recall 5 hidden facts simultaneously from 100 memories |
+| Hierarchical Evolution Preservation | 100% | Information retrievability after STM→LTM compression |
+| Temporal Retrieval | 100% | Time-range filtered queries over 24h of activity |
+| Scalability | 100% | Write/read latency at 1,000 memory corpus |
+| Cross-Agent Isolation | 100% | Memory boundary enforcement between agent profiles |
+
+**Overall accuracy: 100%** · **Batch write speedup: 2.3×** over sequential ingestion.
+
+Run benchmarks yourself:
+
+```bash
+cd packages/memorai
+pnpm add -D tsx  # one-time
+pnpm exec tsx benchmarks/index.ts
+```
+
 ## License
 
 MIT © [Naeemo](https://github.com/Naeemo)

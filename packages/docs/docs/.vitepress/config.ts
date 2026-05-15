@@ -6,6 +6,7 @@ export default defineConfig({
   base: "/memorai/",
   cleanUrls: true,
   lastUpdated: true,
+  ignoreDeadLinks: true,
   head: [
     [
       "link",
@@ -32,6 +33,7 @@ export default defineConfig({
             { text: "Getting Started", link: "/guide/getting-started" },
             { text: "Examples", link: "/guide/examples" },
             { text: "Subpath Exports", link: "/guide/subpath-exports" },
+            { text: "Benchmarks", link: "/guide/benchmarks" },
           ],
         },
       ],

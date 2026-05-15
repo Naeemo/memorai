@@ -13,6 +13,7 @@ export class OllamaEmbeddingService implements EmbeddingService {
       baseURL?: string;
       model?: string;
       dimension?: number;
+      batchSize?: number;
     } = {},
   ) {
     this.dimension = opts.dimension ?? 768;
@@ -38,5 +39,17 @@ export class OllamaEmbeddingService implements EmbeddingService {
 
     const data = (await response.json()) as { embedding: number[] };
     return data.embedding;
+  }
+
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    // Ollama does not have a native batch embeddings endpoint, so we parallelize
+    const batchSize = this.opts.batchSize ?? 8;
+    const results: number[][] = [];
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const chunk = texts.slice(i, i + batchSize);
+      const embeddings = await Promise.all(chunk.map((t) => this.embed(t)));
+      results.push(...embeddings);
+    }
+    return results;
   }
 }

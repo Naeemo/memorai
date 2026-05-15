@@ -151,11 +151,36 @@ export class Memorai {
 
   /**
    * Batch write multiple memory segments.
+   *
+   * Optimizations:
+   * - Embeddings are generated in parallel batches if the service supports it.
+   * - Writes themselves are sequential to avoid race conditions in evolution,
+   *   but the expensive embedding step is parallelized.
    */
   async writeBatch(payloads: WritePayload[]): Promise<MemoryNode[]> {
+    const embeddingService = this.config.embedding;
+    const hasEmbedBatch = !!embeddingService.embedBatch;
+
+    if (hasEmbedBatch) {
+      // Batch-embed all payloads that need embeddings
+      const toEmbed: { index: number; text: string }[] = [];
+      for (const [i, p] of payloads.entries()) {
+        if (!p.payload.embedding && p.payload.summary) {
+          toEmbed.push({ index: i, text: p.payload.summary });
+        }
+      }
+
+      if (toEmbed.length > 0) {
+        const embeddings = await embeddingService.embedBatch!(toEmbed.map((e) => e.text));
+        for (const [i, e] of toEmbed.entries()) {
+          payloads[e.index].payload.embedding = embeddings[i];
+        }
+      }
+    }
+
     const nodes: MemoryNode[] = [];
     for (const payload of payloads) {
-      nodes.push(await this.write(payload));
+      nodes.push(await this.write(payload, { skipEmbedding: hasEmbedBatch }));
     }
     return nodes;
   }

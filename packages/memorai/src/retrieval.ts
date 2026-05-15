@@ -135,19 +135,60 @@ export class RetrievalEngine {
   }
 
   private async semanticSearch(query: RetrievalQuery): Promise<MemoryNode[]> {
-    // Get all nodes with embeddings and compute similarity
     const all = await this.storage.listAll();
     const candidates = all.filter((n) => n.payload.embedding);
-    const scored = candidates
-      .map((n) => ({
-        node: n,
-        score: cosineSimilarity(query.embedding!, n.payload.embedding!),
-      }))
-      .filter((s) => s.score > 0.3) // min relevance threshold
-      .sort((a, b) => b.score - a.score)
-      .slice(0, query.maxCandidates ?? 100);
+    const k = query.maxCandidates ?? 100;
+    const minThreshold = 0.3;
 
-    return scored.map((s) => s.node);
+    // Min-heap for top-k (O(N log K) vs O(N log N) with full sort)
+    const heap: Array<{ node: MemoryNode; score: number }> = [];
+
+    for (const n of candidates) {
+      const score = cosineSimilarity(query.embedding!, n.payload.embedding!);
+      if (score < minThreshold) continue;
+
+      if (heap.length < k) {
+        heap.push({ node: n, score });
+        this.heapifyUp(heap, heap.length - 1);
+      } else if (score > heap[0].score) {
+        heap[0] = { node: n, score };
+        this.heapifyDown(heap, 0);
+      }
+    }
+
+    // Sort descending by score before returning
+    heap.sort((a, b) => b.score - a.score);
+    return heap.map((s) => s.node);
+  }
+
+  private heapifyUp(
+    heap: Array<{ node: MemoryNode; score: number }>,
+    i: number,
+  ) {
+    while (i > 0) {
+      const parent = Math.floor((i - 1) / 2);
+      if (heap[parent].score <= heap[i].score) break;
+      [heap[parent], heap[i]] = [heap[i], heap[parent]];
+      i = parent;
+    }
+  }
+
+  private heapifyDown(
+    heap: Array<{ node: MemoryNode; score: number }>,
+    i: number,
+  ) {
+    while (true) {
+      const left = 2 * i + 1;
+      const right = 2 * i + 2;
+      let smallest = i;
+      if (left < heap.length && heap[left].score < heap[smallest].score)
+        smallest = left;
+      if (right < heap.length && heap[right].score < heap[smallest].score)
+        smallest = right;
+      if (smallest === i) break;
+      [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
+      i = smallest;
+    }
   }
 
   private tagSearch(query: RetrievalQuery): Promise<MemoryNode[]> {
@@ -182,9 +223,22 @@ export class RetrievalEngine {
   ): Array<MemoryNode & { _score: number }> {
     let results = candidates;
 
-    // Level filter
+    // Level filter — fallback to all levels if requested level has no matches
     if (query.level) {
-      results = results.filter((n) => n.hierarchy.level === query.level);
+      const filtered = results.filter((n) => n.hierarchy.level === query.level);
+      if (filtered.length > 0) {
+        results = filtered;
+      }
+      // else: keep all levels as fallback
+    }
+
+    // Time range filter
+    if (query.timeRange) {
+      results = results.filter(
+        (n) =>
+          n.timestamp >= query.timeRange!.start &&
+          n.timestamp <= query.timeRange!.end,
+      );
     }
 
     // Agent role filter

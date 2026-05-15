@@ -8,9 +8,12 @@ import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
  */
 export class MemoryAdapter implements StorageAdapter {
   private nodes = new Map<string, MemoryNode>();
+  private tagIndex = new Map<string, Set<string>>(); // tag lowercase -> set of node IDs
 
   put(node: MemoryNode): Promise<void> {
+    this.removeFromTagIndex(node.id);
     this.nodes.set(node.id, node);
+    this.addToTagIndex(node);
     return Promise.resolve();
   }
 
@@ -19,13 +22,16 @@ export class MemoryAdapter implements StorageAdapter {
   }
 
   delete(id: string): Promise<void> {
+    this.removeFromTagIndex(id);
     this.nodes.delete(id);
     return Promise.resolve();
   }
 
   batchPut(nodes: MemoryNode[]): Promise<void> {
     for (const node of nodes) {
+      this.removeFromTagIndex(node.id);
       this.nodes.set(node.id, node);
+      this.addToTagIndex(node);
     }
     return Promise.resolve();
   }
@@ -39,10 +45,46 @@ export class MemoryAdapter implements StorageAdapter {
 
   queryByTags(tags: string[], opts?: QueryOpts): Promise<MemoryNode[]> {
     const tagSet = new Set(tags.map((t) => t.toLowerCase()));
-    const results = Array.from(this.nodes.values()).filter((n) =>
-      n.payload.tags.some((t) => tagSet.has(t.toLowerCase())),
-    );
+    const idSet = new Set<string>();
+    for (const tag of tagSet) {
+      const ids = this.tagIndex.get(tag);
+      if (ids) {
+        for (const id of ids) {
+          idSet.add(id);
+        }
+      }
+    }
+    const results = Array.from(idSet)
+      .map((id) => this.nodes.get(id)!)
+      .filter(Boolean);
     return Promise.resolve(this.applyOpts(results, opts));
+  }
+
+  private addToTagIndex(node: MemoryNode): void {
+    for (const tag of node.payload.tags) {
+      const lower = tag.toLowerCase();
+      let set = this.tagIndex.get(lower);
+      if (!set) {
+        set = new Set();
+        this.tagIndex.set(lower, set);
+      }
+      set.add(node.id);
+    }
+  }
+
+  private removeFromTagIndex(id: string): void {
+    const existing = this.nodes.get(id);
+    if (!existing) return;
+    for (const tag of existing.payload.tags) {
+      const lower = tag.toLowerCase();
+      const set = this.tagIndex.get(lower);
+      if (set) {
+        set.delete(id);
+        if (set.size === 0) {
+          this.tagIndex.delete(lower);
+        }
+      }
+    }
   }
 
   queryBySalience(minScore: number, opts?: QueryOpts): Promise<MemoryNode[]> {
