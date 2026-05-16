@@ -6,3 +6,10 @@ dist
 
 *.log
 .eslintcache
+
+# Benchmark datasets (downloaded by `pnpm bench:fetch`) and result outputs.
+# Canonical published results under packages/benchmarks/results/published/ are
+# explicitly NOT ignored (they live in the per-package .gitignore allow-list).
+packages/benchmarks/datasets/
+packages/benchmarks/results/*.json
+packages/benchmarks/results/*.md

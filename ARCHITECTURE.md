@@ -1,9 +1,9 @@
 # Memorai Architecture
 
-> **Version:** 1.0-draft  
-> **Date:** 2026-05-14  
-> **Based on:** StreamingClaw StreamingMemory (arXiv:2603.22120v2, Section 4)  
-> **Goal:** A runtime-agnostic, multimodal streaming memory layer for AI agents — Browser, Node.js, Bun, Deno.
+> **Version:** 0.1.0
+> **Date:** 2026-05-16
+> **Based on:** StreamingClaw StreamingMemory (arXiv:2603.22120v2) + mem0/Letta lessons + production benchmark feedback
+> **Goal:** A runtime-agnostic, multimodal **event-based** memory layer for AI agents — an "efficient memory that never forgets".
 
 ---
 
@@ -29,6 +29,41 @@ StreamingClaw's StreamingMemory solves three critical problems that traditional 
 4. **Runtime-agnostic**: Same code runs in Browser (IndexedDB), Node.js (SQLite/LevelDB), Bun, Deno. Storage is fully abstracted.
 5. **Cross-agent unified**: Standardized storage/retrieval interfaces, with differentiated memory management per agent role.
 6. **Streaming-native**: Designed for continuous, real-time input — not batch processing of offline files.
+7. **Event-shaped input**: The public API accepts raw events anchored in time (who, when, to whom, what) — Memorai's pipeline does extraction, structuring, indexing, and recall internally. Users never hand-craft a structured `MemoryNode`.
+
+### 1.3 Three-Layer API Design
+
+Memorai exposes three interface layers, ordered by abstraction:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Event API (Public — what users call)                            │
+│  recordEvent({ at, actor, target?, content, ... })                │
+│  recall(question, { actor?, timeRange?, ... })                    │
+│  - Time-anchored                                                  │
+│  - Actor / target relationships                                   │
+│  - Multimodal content (text, image, audio, video, file)           │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+              extraction pipeline (LLM + heuristics)
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Memory API (Internal — implementation surface)                  │
+│  write(WritePayload) / writeBatch / evolve / retrieve             │
+│  - Structured MemoryNode { summary, tags, salience, modality }    │
+│  - Hierarchical evolution (segment → atomic_action → event)       │
+│  - Multi-strategy retrieval (factual / temporal / inferential …)  │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Storage API (Pluggable)                                          │
+│  StorageAdapter / EmbeddingService / CompressionService           │
+│  - MemoryAdapter / SQLiteAdapter / IndexedDBAdapter / …           │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Why three layers**: Earlier versions of Memorai exposed `write(WritePayload)` directly to callers, forcing them to produce `{ summary, tags, salienceScore, modality }` themselves. That bled internal extraction concerns into every integration. The Event API restores the natural shape callers actually have ("Alice sent Bob a message at 14:32"), and Memorai owns the conversion to structured memory. The internal Memory API is preserved as a power-user / library-author escape hatch.
 
 ---
 
@@ -392,6 +427,54 @@ interface CompressionService {
 
 Compression is **optional** — users can disable it and store raw references.
 
+### 4.6 Extraction Pipeline (Event → MemoryNode)
+
+The Extraction Pipeline is what turns a raw `Event` from the public API into one or more structured `MemoryNode`s, then into hierarchical memory through `EvolutionEngine`.
+
+```typescript
+interface Extractor {
+  // Convert a raw event into one or more memory writes.
+  extract(event: Event, ctx: ExtractContext): Promise<WritePayload[]>;
+}
+
+interface ExtractContext {
+  // The events immediately preceding this one in the same actor/target
+  // window — supplied for coreference and topic continuity.
+  recent: MemoryNode[];
+  // Embedder, LLM, and clock available to the extractor.
+  embedding: EmbeddingService;
+  llm?: LLMService;
+  now: () => number;
+}
+```
+
+**Pipeline stages**, applied in order to every incoming event:
+
+1. **Normalize.** Resolve `at` (point) vs. `during` (range) → canonical `timestamp` + `duration`. Resolve `actor` / `target` to stable string IDs. Coerce `content` to `MemoryPayloadInput` shape.
+2. **Transcribe.** If `content` is non-text (image / audio / video / file), produce a textual `summary` and `description`:
+   - Image → caption (vision model) + OCR if text present
+   - Audio → speech-to-text transcript
+   - Video → key-frame captions + audio transcript, joined by timeline
+   - File → MIME-based handler (PDF / docx → text; binary → metadata only)
+3. **Salience scoring.** Heuristic + (optional) LLM rating. Heuristic considers: presence of named entities, declarative facts (`X is Y`), updates that contradict prior memory, explicit emphasis tokens, length. Score in `[0, 1]`.
+4. **Tagging.** Extract entities (people, places, things, dates), topics, and explicit hashtags. Always include `actor` and `target` (if present) as tags so they remain queryable via `queryByTags`.
+5. **Embedding.** Compute `embedding` from `summary` (and `description` if present) via the injected `EmbeddingService`. Cached by content hash so identical content doesn't re-embed.
+6. **Relationship inference.** If `target` is present, attach a `{ kind: "interaction", from: actor, to: target }` triple to `meta`. Used for `queryByRelationship`.
+7. **Splitting.** Long content (e.g., a 30-minute video transcript) may be split into multiple `WritePayload`s along sentence/scene boundaries; the originals are linked via shared `event_id` in `meta`.
+8. **Write.** Pass the resulting `WritePayload[]` to `Memorai.writeBatch()`. The internal `EvolutionEngine` takes over from there (segment → atomic_action → event).
+
+**Extractor implementations** (provided + pluggable):
+
+| Implementation | Cost | Quality | When to use |
+|---|---|---|---|
+| `WrapExtractor` | $0 | Low | Text-only events; benchmarking storage layer in isolation |
+| `LightExtractor` | Embeddings + heuristics | Medium | Production text agents; no LLM available |
+| `LLMExtractor` | LLM per event | High | Match mem0/Letta-class quality; default for production |
+| `MultimodalExtractor` | LLM + vision model | High | Image/audio/video events |
+| User-defined | — | — | Domain-specific extraction logic |
+
+The extractor is injected at `Memorai` construction. Switching extractors is the primary lever for the cost/quality tradeoff.
+
 ---
 
 ## 5. Cross-Agent Unified Memory
@@ -431,115 +514,235 @@ interface AgentMemoryProfile {
 
 ## 6. Public API Design
 
-### 6.1 Core Class: `Memorai`
+The public API is **event-shaped**. Users hand Memorai raw events; Memorai owns extraction, structuring, evolution, and recall. The structured `MemoryNode` / `WritePayload` types remain reachable for advanced users but are no longer the recommended integration surface.
+
+### 6.1 Event API — the primary entry point
+
+```typescript
+interface Event {
+  // —— time anchor (one of these is required) ——
+  at?: number | Date;                     // point in time (Unix ms or Date)
+  during?: { start: number | Date; end: number | Date }; // time range
+
+  // —— participants ——
+  actor: string;                          // who produced the event
+  target?: string;                        // to whom (optional — observations have no target)
+  participants?: string[];                // additional involved parties (multi-party calls, etc.)
+
+  // —— payload ——
+  content: EventContent;                  // discriminated by `kind`
+
+  // —— optional metadata ——
+  context?: string;                       // free-form, attached to MemoryNode.meta.writeContext
+  tags?: string[];                        // user-supplied tags merged with extracted ones
+  salienceHint?: number;                  // 0–1, user-supplied override for salience scorer
+  id?: string;                            // dedupe key — same id = idempotent re-record
+}
+
+type EventContent =
+  | { kind: "message"; text: string }                                        // SMS / chat / email
+  | { kind: "speech"; text: string; audio?: AudioBuffer | string }            // transcribed speech
+  | { kind: "image"; image: ImageData | string; caption?: string }            // photo / screenshot
+  | { kind: "audio"; audio: AudioBuffer | string; transcript?: string }
+  | { kind: "video"; video: string; frames?: ImageData[]; transcript?: string }
+  | { kind: "file"; mime: string; ref: string; text?: string }                // document / attachment
+  | { kind: "observation"; text: string }                                    // narration / introspection
+  | { kind: "custom"; text: string; data?: Record<string, unknown> };
+
+class Memorai {
+  // —— Recording events ——
+  /**
+   * Record a single event. Returns a RecordHandle immediately — extraction
+   * runs in the background. Await `handle.nodes` to block until extraction
+   * completes, or fire-and-forget for low-latency hot paths.
+   */
+  recordEvent(event: Event): RecordHandle;
+
+  /** Record many events efficiently. Returns one handle covering all of them. */
+  recordEvents(events: Event[]): RecordHandle;
+}
+
+interface RecordHandle {
+  /** Event IDs assigned synchronously (one per Event, dedupe-keyed if `Event.id` provided). */
+  readonly eventIds: readonly string[];
+  /** Resolves once extraction + write completes. Rejects on extraction failure. */
+  readonly nodes: Promise<MemoryNode[]>;
+  /** True once `nodes` has resolved. Useful for non-blocking status checks. */
+  readonly done: () => boolean;
+  /** Cancel pending extraction (no-op if already complete). */
+  readonly cancel: () => void;
+}
+```
+
+**Examples**:
+
+```typescript
+// "Alice sent Bob a message at 14:32"
+const handle = memory.recordEvent({
+  at: Date.now(),
+  actor: "alice",
+  target: "bob",
+  content: { kind: "message", text: "Are you free for lunch?" },
+});
+// fire-and-forget — hot path doesn't wait on LLM extraction
+// (or `await handle.nodes` to block until written)
+
+// "Carol shared a 5-minute video"
+memory.recordEvent({
+  during: { start: t0, end: t0 + 5 * 60_000 },
+  actor: "carol",
+  content: { kind: "video", video: "blob:abc-123", transcript: "..." },
+});
+
+// "User observed the dashboard alert"
+memory.recordEvent({
+  at: Date.now(),
+  actor: "user",
+  content: { kind: "observation", text: "Dashboard turned red — error rate climbed past 5%" },
+  salienceHint: 0.9,
+});
+```
+
+### 6.2 Recall API — the primary read path
 
 ```typescript
 class Memorai {
-  constructor(config: MemoraiConfig);
-  
-  // ─── Write ───
-  /** Store a new memory segment. Returns the created MemoryNode. */
+  /** Natural-language recall. Returns the most relevant memories. */
+  recall(question: string, opts?: RecallOptions): Promise<RecallResult>;
+
+  /** Structured recall: by actor, by relationship, by time window. */
+  recallByActor(actor: string, opts?: RecallOptions): Promise<RecallResult>;
+  recallByRelationship(a: string, b: string, opts?: RecallOptions): Promise<RecallResult>;
+  recallByTime(range: { start: number; end: number }, opts?: RecallOptions): Promise<RecallResult>;
+  recallByTag(tags: string[], opts?: RecallOptions): Promise<RecallResult>;
+}
+
+interface RecallOptions {
+  topK?: number;                          // default 10
+  timeRange?: { start: number; end: number };
+  actor?: string;                         // filter to events involving this actor
+  target?: string;
+  modality?: ("text" | "image" | "audio" | "video")[];
+  level?: "segment" | "atomic_action" | "event";
+  strategy?: "factual" | "temporal" | "inferential" | "exploratory";
+  // Power user: override the underlying RetrievalQuery for full control
+  overrideQuery?: Partial<RetrievalQuery>;
+}
+
+interface RecallResult {
+  memories: RecalledMemory[];             // ranked, top-K
+  confidence: number;
+  totalScanned: number;
+}
+
+interface RecalledMemory {
+  id: string;
+  at: number;                             // primary timestamp
+  during?: { start: number; end: number };
+  actor: string;
+  target?: string;
+  summary: string;                        // canonical textual form
+  evidence?: { kind: "image" | "audio" | "video" | "file"; ref: string }[];
+  score: number;                          // 0–1 relevance
+  level: "segment" | "atomic_action" | "event";
+}
+```
+
+The Recall API is intentionally narrow on the surface but pipes through the full `RetrievalEngine` underneath. The `overrideQuery` escape hatch lets benchmarks and power users access the multi-strategy retrieval API directly.
+
+### 6.3 Internal Memory API
+
+These methods are **internal**. They live on `Memorai` for library authors, extractor implementations, and benchmark harnesses that need to bypass extraction. They are documented but not the recommended integration path.
+
+```typescript
+class Memorai {
+  // ─── Internal: structured write ───
+  /** @internal Store a pre-extracted memory segment. Used by extractors and tests. */
   write(payload: WritePayload, opts?: WriteOptions): Promise<MemoryNode>;
-  
-  /** Batch write multiple segments. */
+  /** @internal Batch version. */
   writeBatch(payloads: WritePayload[]): Promise<MemoryNode[]>;
-  
-  // ─── Read ───
-  /** Retrieve memories matching a query. */
+
+  // ─── Internal: low-level read ───
+  /** @internal Direct retrieval engine access. Most callers should use recall(). */
   retrieve(query: RetrievalQuery): Promise<RetrievalResult>;
-  
-  /** Get a specific node by ID. */
+  /** @internal Direct storage access. */
   get(id: string): Promise<MemoryNode | null>;
-  
-  /** List memories with filtering. */
   list(opts?: ListOptions): Promise<MemoryNode[]>;
-  
-  // ─── Evolution ───
-  /** Manually trigger HME. Normally auto-triggered. */
+
+  // ─── Internal: evolution ───
+  /** @internal Force HME aggregation. Normally auto-triggered. */
   evolve(): Promise<void>;
-  
+
   // ─── Management ───
-  /** Delete a memory node (and optionally its children). */
   delete(id: string, cascade?: boolean): Promise<void>;
-  
-  /** Update a memory node's metadata (tags, salience, etc.). */
-  update(id: string, patch: Partial<MemoryNode>): Promise<MemoryNode>;
-  
-  /** Close all resources. */
+  update(id: string, patch: NodePatch): Promise<MemoryNode>;
   close(): Promise<void>;
 }
 ```
 
-### 6.2 Configuration
+### 6.4 Configuration
 
 ```typescript
 interface MemoraiConfig {
   // Storage
   storage: StorageAdapter;
-  
+
   // Services (all pluggable)
   embedding: EmbeddingService;
   compression?: CompressionService;
-  
-  // Evolution
+  extractor?: Extractor;                  // default: LightExtractor (if no LLM) or LLMExtractor (if LLM provided)
+  llm?: LLMService;                       // used by LLMExtractor and salience scoring
+
+  // Evolution — auto-triggered by default
   evolution?: Partial<EvolutionConfig>;
-  
+
   // Cross-agent
   agentProfile?: AgentMemoryProfile;
-  
-  // Global
-  namespace?: string;               // Memory namespace (for multi-tenant)
+
+  // Default participants
+  defaultActor?: string;                  // used if Event.actor is omitted
+  namespace?: string;
 }
 ```
 
-### 6.3 Usage Example
+### 6.5 Usage Example
 
 ```typescript
-import { Memorai } from 'memorai';
-import { IndexedDBAdapter } from 'memorai/adapters/browser';
-import { OpenAIEmbeddingService } from 'memorai/embeddings';
+import { Memorai, LLMExtractor } from "memorai";
+import { SQLiteAdapter } from "memorai/storage";
+import { OpenAIEmbeddingService } from "memorai/embeddings";
 
-// Browser usage
 const memory = new Memorai({
-  storage: new IndexedDBAdapter({ dbName: 'my-agent-memory' }),
-  embedding: new OpenAIEmbeddingService({ apiKey: '...' }),
-  evolution: {
-    semanticMergeThreshold: 0.85,
-    stmMaxSize: 1000,
-  },
-  agentProfile: {
-    agentId: 'browser-assistant',
-    role: 'reasoning',
-    writePolicy: { levels: ['segment', 'atomic_action'], modalities: ['text', 'vision'], salienceBoost: 1.0 },
-    readPolicy: { defaultLevel: 'event', defaultTraversal: 'reverse', timeHorizonMs: 86400000 },
-  },
+  storage: new SQLiteAdapter(db),
+  embedding: new OpenAIEmbeddingService({ apiKey }),
+  extractor: new LLMExtractor({ llm: openaiChat, model: "gpt-4o-mini" }),
+  defaultActor: "user",
 });
 
-// Write a multimodal memory (e.g., from a video stream)
-const node = await memory.write({
-  timestamp: Date.now(),
-  payload: {
-    summary: 'User opened the code editor and started typing',
-    description: 'The user switched from browser to VS Code and began editing file architecture.md',
-    media: {
-      frames: [screenshot],  // ImageData
-    },
-    tags: ['coding', 'vscode', 'architecture'],
-    salienceScore: 0.9,
-    modality: ['vision', 'text'],
-  },
+// Record conversations
+memory.recordEvent({
+  at: Date.now(),
+  actor: "user",
+  target: "assistant",
+  content: { kind: "message", text: "Remind me to call Bob tomorrow about the migration" },
 });
 
-// Retrieve with natural language
-const result = await memory.retrieve({
-  text: 'What was I working on in the editor?',
-  strategy: 'factual',
-  traversalOrder: 'reverse',
+memory.recordEvent({
+  at: Date.now(),
+  actor: "assistant",
+  target: "user",
+  content: { kind: "message", text: "Got it. I'll surface a reminder tomorrow morning." },
+});
+
+// Later: recall
+const result = await memory.recall("what did the user ask me to remind them about?", {
+  actor: "user",
   topK: 5,
 });
 
-console.log(result.nodes.map(n => n.payload.summary));
-// → ['User opened the code editor and started typing', ...]
+for (const m of result.memories) {
+  console.log(`[${new Date(m.at).toISOString()}] ${m.actor}→${m.target}: ${m.summary}`);
+}
 ```
 
 ---
@@ -591,20 +794,53 @@ Use **tsdown** (or tsup) with multiple entry points and conditional builds. No b
 ## 8. Streaming Memory Lifecycle
 
 ```
-┌──────────┐     ┌──────────────┐     ┌─────────────────┐     ┌─────────────┐
-│  Input   │────►│   Raw Segment │────►│  STM: Segments   │────►│   HME:      │
-│  Stream  │     │   (temporal)  │     │  (fine-grained)  │     │  Segment →  │
-└──────────┘     └──────────────┘     └─────────────────┘     │  Atomic     │
-                                                                │  Action     │
-                                                                └──────┬──────┘
-                                                                       │
-                                                                       ▼
-┌──────────┐     ┌──────────────┐     ┌─────────────────┐     ┌─────────────┐
-│  Agent   │◄────│  Retrieval   │◄────│  LTM: Events    │◄────│   HME:      │
-│  Query   │     │  (efficient) │     │  (abstract)     │     │  Atomic →   │
-└──────────┘     └──────────────┘     └─────────────────┘     │  Event      │
-                                                              └─────────────┘
+                                            (public API)
+┌─────────────┐     ┌──────────────┐     ┌──────────────────────┐
+│  Caller     │────►│  Event       │────►│   Extraction         │
+│  (agent /   │     │  recordEvent │     │   (transcribe → tag  │
+│   user code)│     │  recordEvents│     │    → salience → emb) │
+└─────────────┘     └──────────────┘     └──────────┬───────────┘
+                                                     │ WritePayload[]
+                                                     ▼
+                              (internal Memory API)
+                    ┌─────────────────┐     ┌────────────────┐
+                    │  Memorai.write  │────►│ STM: Segments  │
+                    │   (structured)  │     │ (fine-grained) │
+                    └─────────────────┘     └────────┬───────┘
+                                                      │
+                                                      ▼
+                                            ┌────────────────┐
+                                            │   HME L1:      │
+                                            │  Segment →     │
+                                            │  Atomic Action │
+                                            └────────┬───────┘
+                                                      │
+                                                      ▼ (auto-trigger)
+                                            ┌────────────────┐
+                                            │   HME L2:      │
+                                            │  Atomic →      │
+                                            │  Event         │
+                                            └────────┬───────┘
+                                                      │
+                                                      ▼
+                                            ┌────────────────┐
+                                            │ LTM: Events    │
+                                            │ (abstract)     │
+                                            └────────┬───────┘
+                                                      │
+                                                      ▼
+┌─────────────┐     ┌──────────────┐     ┌────────────────────┐
+│  Agent      │◄────│  Recall      │◄────│   Retrieval        │
+│  Query      │     │  (public API)│     │   (concurrent,     │
+└─────────────┘     └──────────────┘     │    multi-strategy) │
+                                          └────────────────────┘
 ```
+
+Two phases run continuously:
+- **Ingest** (top half): events arrive, extraction produces `WritePayload`s, internal `write` deposits them as segments, HME promotes them upward in the background.
+- **Recall** (bottom): `recall(question, opts?)` queries across all levels with the configured retrieval strategy, returning a ranked, attributed result set.
+
+The two halves are decoupled — recall does not wait on evolution, and evolution does not block recall.
 
 ---
 
@@ -629,7 +865,7 @@ Use **tsdown** (or tsup) with multiple entry points and conditional builds. No b
 
 ### Phase 1: Core Foundation ✅
 - [x] Storage adapter interface + IndexedDB + Memory adapters
-- [ ] SQLite adapter (Node.js / Bun / Deno)
+- [x] SQLite adapter (Node.js / Bun / Deno)
 - [x] MemoryNode schema + CRUD operations
 - [x] Basic embedding service interface + OpenAI/Ollama implementations
 - [x] Simple retrieval (embedding cosine similarity)
@@ -640,32 +876,93 @@ Use **tsdown** (or tsup) with multiple entry points and conditional builds. No b
 - [x] Background evolution loop (`autoEvolveIntervalMs`)
 - [x] Configurable thresholds (`semanticMergeThreshold`, `sceneSimilarityThreshold`, etc.)
 
-### Phase 3: Advanced Retrieval
-- [ ] Command-driven retrieval with strategy hints
-- [ ] Concurrent retrieval pipeline
-- [ ] Self-directed temporal traversal (forward/reverse/salience)
-- [ ] Early-stop mechanism
+### Phase 3: Advanced Retrieval ✅
+- [x] Command-driven retrieval with strategy hints
+- [x] Concurrent retrieval pipeline
+- [x] Self-directed temporal traversal (forward/reverse/salience)
+- [x] Early-stop mechanism
 
 ### Phase 4: Multimodal & Compression
-- [ ] Media payload support (image references)
-- [ ] Compression service interface
+- [x] Media payload type support (image references)
+- [x] Compression service interface
 - [ ] Cross-modal embeddings
+- [ ] Image / audio / video extractors
 
 ### Phase 5: Cross-Agent & Ecosystem
 - [x] Agent memory profiles (read/write policies)
 - [ ] Cross-agent unified memory (shared storage + differentiated retrieval)
 - [ ] Integration examples (OpenClaw-compatible)
-- [ ] Documentation & tutorials
+- [x] Documentation & tutorials (VitePress)
+- [x] Benchmark harness against public datasets (LoCoMo / LongMemEval / ConvoMem)
+
+### Phase 6: Event API + Extraction Pipeline ✅ (shipped in 0.1.0)
+
+The first five phases produced the internal Memory API. Phase 6 wrapped it with the event-shaped public surface described in Sections 1.3, 4.6, 6.1, and 6.2.
+
+**6.1 — Flatten internal types** ✅
+- [x] Lift `level` / `parentId` / `childrenIds` / `mergedFrom` from `MemoryNode.hierarchy` to top-level
+- [x] Update all storage adapters (indexes use flat fields)
+- [x] Update tests, examples, benchmarks package
+
+**6.2 — Auto-evolve triggers** ✅
+- [x] `EvolutionConfig.mode: "auto" | "manual"` with default `"auto"`
+- [x] `autoTriggers`: `onWriteCount` / `onIdleMs` / `onStmFull` / `onClose` / optional `intervalMs`
+- [x] Mutex so concurrent `evolve()` coalesces into one in-flight call
+
+**6.3 — userId first-class** ✅
+- [x] `MemoryNode.userId?`, `MemoryNode.actor?`, `MemoryNode.target?` at top level
+- [x] `StorageAdapter.queryByUserId` / `queryByActor` / `queryByTarget` + indexes in all 3 adapters
+- [x] Evolution respects userId boundaries — no cross-actor merging (L1 + L2)
+
+**6.4 — Event API surface** ✅
+- [x] `recordEvent(event)` / `recordEvents(events)` returning `RecordHandle`
+- [x] `Event` + discriminated `EventContent` types (message / speech / image / audio / video / file / observation / custom)
+- [x] `recall(question, opts?)` + structured `recallByActor` / `recallByRelationship` / `recallByTime` / `recallByTag`
+- [x] `defaultActor` / `defaultUserId` in config
+
+**6.5 — Extraction pipeline** ✅
+- [x] `Extractor` interface + `ExtractContext` + `LLMService` interface
+- [x] `WrapExtractor` (text passthrough — no LLM)
+- [x] `LightExtractor` (embeddings + heuristic salience + entity tagging)
+- [x] `LLMExtractor` (LLM summary + tags + salience; gracefully falls back to Light on parse failure)
+- [ ] `MultimodalExtractor` (image/audio/video → text) — deferred; multimodal events currently pass through via WrapExtractor with raw media refs preserved
+
+**6.6 — Internal API cleanup** ✅
+- [x] Mark `write` / `writeBatch` / `retrieve` / `evolve` as `@internal` in JSDoc
+- [x] Documented escape hatches for benchmarks and extractors
+- [x] Pre-1.0 breaking changes consolidated into 0.1.0 (no migration guide — wipe and reingest)
+
+**6.7 — Benchmarks rewire** ✅
+- [x] `packages/benchmarks/src/providers/memorai.ts` switched to single Memorai + `recordEvent` + `recall`
+- [x] Dropped the `Map<userId, Memorai>` instance-per-user workaround
+- [x] Custom suite passes; LoCoMo smoke pipeline runs end-to-end
 
 ---
 
 ## 11. Open Questions
+
+### Resolved (decisions captured)
+
+- **Q6 / `recordEvent` is async via `RecordHandle`** — returns a handle synchronously with `eventIds`; extraction runs in the background. Callers can `await handle.nodes` to block, fire-and-forget for hot paths, or call `handle.cancel()` to abort pending extraction.
+- **Q11 / Cost transparency is out of scope for the API** — token spend stays at the LLM client layer. Memorai does not return `cost` fields. Users who need observability wrap their `LLMService` themselves.
+
+### Original (pre-Event-API)
 
 1. **Embedding dimension & model choice**: Do we standardize on a default embedding dimension (e.g., 768, 1024, 1536)? Should the storage adapter handle dynamic dimensions?
 2. **Media storage size limits**: Browser IndexedDB has size quotas. Should we implement automatic pruning/eviction based on LRU + salience?
 3. **Real-time evolution cost**: HME on every write could be expensive. Should we batch evolution (buffer writes, evolve periodically)?
 4. **Compression trade-offs**: Video compression is CPU-intensive. Should compression be offloaded to a Web Worker / worker thread?
 5. **Cross-tab synchronization**: In browser, should memory sync across tabs via BroadcastChannel + SharedWorker?
+
+### New (raised by Phase 6 Event API)
+
+6. **Should `recordEvent` return memory IDs synchronously or wait on extraction?** LLM extraction can take seconds. Option A: return a `RecordHandle` that resolves to nodes when extraction completes; caller can `await` or fire-and-forget. Option B: always await — simple but blocks. Option C: dual API — sync `queueEvent` returning a handle, async `recordEvent` returning nodes.
+7. **Multi-actor relationships**: Currently `meta.sourceAgent` is a single string. Should we generalize to `actor` + `target` + `participants`? How does this interact with `agentProfile`?
+8. **Idempotency**: `Event.id` lets callers dedupe. What's the storage cost of dedupe tracking? Time-bounded (e.g., last 24h) or permanent?
+9. **Recall ranking across mixed levels**: When `recall()` returns segments, atomic_actions, and events together, how should they be ranked? The current `RetrievalEngine` boosts levels per-strategy, but a "smart default" merging segment+event for the same fact is desirable.
+10. **Extractor isolation**: An LLM extractor can hallucinate a salience score or invent tags. Should extractor output be sandboxed/validated against a schema before reaching storage?
+11. **Cost transparency**: Event API hides token spend behind extraction. Should `recordEvent` emit a `cost` field (tokens, $ estimate) so callers know what they're spending?
+12. **Re-extraction on extractor upgrade**: If the user swaps `LightExtractor` for `LLMExtractor`, should historical memories be re-extracted? Stored events vs. stored extractions — should both be persisted?
 
 ---
 
