@@ -27,6 +27,7 @@ pnpm --filter @memorai/benchmarks bench:locomo --limit 1 --limit-qas 30
 - [Ollama](https://ollama.com) running locally (default `http://localhost:11434`, override with `OLLAMA_HOST`)
 - `nomic-embed-text` model pulled: `ollama pull nomic-embed-text`
 - For the LLM-as-judge pipeline: either a generation-capable Ollama model (`gemma4:31b-cloud` answerer + `qwen3-coder-next:cloud` judge are the defaults — different model families to avoid self-judgment bias) **or** `OPENAI_API_KEY=sk-...` to use `gpt-4o-mini` for both.
+- When `huggingface.co` is unreachable (e.g. from China), set `HF_ENDPOINT=https://hf-mirror.com` before `pnpm bench:fetch longmemeval`. The fetcher honours the standard `HF_ENDPOINT` env var.
 
 ## Custom synthetic suite
 
@@ -161,7 +162,19 @@ This is the predictable shape of "structured-storage but no LLM extraction" base
 
 ### LongMemEval
 
-**Not yet measured.** HuggingFace was unreachable from the run environment during the v0.1.0 round (network constraint, not a code issue). The loader, runner, and CLI are all in place — `pnpm bench:fetch longmemeval` + `pnpm bench:locomo --limit 30` will produce numbers as soon as the dataset is locally accessible.
+| Setting | Value |
+|---------|-------|
+| Provider | Memorai 0.1.0 |
+| Split | `oracle` (each question's haystack is the ground-truth context only) |
+| Conversations | 20 (the first 20 of the oracle split) |
+| QAs | 20 (one QA per haystack — the LongMemEval convention) |
+| Categories sampled | temporal-reasoning (the first 20 happened to be all in this category) |
+
+**Result: 55.00% accuracy (11/20)**, avg latency 5.8s, p95 25.4s. Per-record JSON committed under `published/longmemeval-oracle-20q-2026-05-16.json`.
+
+**What this measures (and doesn't)**: the oracle split hands Memorai a small haystack of already-relevant sessions per question. So the 55% number reflects the **downstream pipeline** (Event ingest → `recall` → answerer → judge) on pre-curated context — it isolates answer-generation and judging quality from retrieval quality. The `longmemeval_s` split (115K tokens with distractor sessions) is downloaded but not yet run; that's the number that compares against published mem0/Zep/Letta scores.
+
+To fetch LongMemEval behind a regional network restriction, set `HF_ENDPOINT=https://hf-mirror.com` and re-run `pnpm bench:fetch longmemeval`.
 
 ## What these results say about Memorai
 

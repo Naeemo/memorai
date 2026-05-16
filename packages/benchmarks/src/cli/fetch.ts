@@ -2,6 +2,11 @@
 // Dataset downloader. No SHA verification yet — upstream datasets do not
 // publish stable hashes for these files, and pinning to a snapshot would
 // silently lag behind dataset corrections.
+//
+// HuggingFace endpoint can be redirected via the HF_ENDPOINT env var, which
+// is the same convention the official huggingface_hub Python library uses.
+// Set HF_ENDPOINT=https://hf-mirror.com to fetch via the popular community
+// mirror when huggingface.co is unreachable.
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -12,6 +17,13 @@ interface FetchTarget {
   out: string;
   licenseUrl: string;
   licenseName: string;
+}
+
+const HF_DEFAULT = "https://huggingface.co";
+const HF_ENDPOINT = (process.env.HF_ENDPOINT ?? HF_DEFAULT).replace(/\/+$/, "");
+
+function hf(path: string): string {
+  return `${HF_ENDPOINT}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 const TARGETS: Record<Exclude<Dataset, "all">, FetchTarget[]> = {
@@ -25,18 +37,16 @@ const TARGETS: Record<Exclude<Dataset, "all">, FetchTarget[]> = {
   ],
   longmemeval: [
     {
-      url: "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json",
+      url: hf("/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json"),
       out: "datasets/longmemeval/longmemeval_oracle.json",
       licenseName: "MIT",
-      licenseUrl:
-        "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned",
+      licenseUrl: hf("/datasets/xiaowu0162/longmemeval-cleaned"),
     },
     {
-      url: "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      url: hf("/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json"),
       out: "datasets/longmemeval/longmemeval_s.json",
       licenseName: "MIT",
-      licenseUrl:
-        "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned",
+      licenseUrl: hf("/datasets/xiaowu0162/longmemeval-cleaned"),
     },
   ],
 };

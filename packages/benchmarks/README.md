@@ -44,7 +44,7 @@ options:
   --out <path>                           (default: results/<suite>-<provider>-<ts>.{json,md})
 ```
 
-Env vars: `OPENAI_API_KEY`, `OLLAMA_HOST`, `JUDGE_MODEL`, `ANSWERER_MODEL`.
+Env vars: `OPENAI_API_KEY`, `OLLAMA_HOST`, `JUDGE_MODEL`, `ANSWERER_MODEL`, `HF_ENDPOINT` (set to `https://hf-mirror.com` when huggingface.co is unreachable).
 
 ## Why different judge and answerer
 
