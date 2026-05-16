@@ -96,7 +96,12 @@ export class RetrievalEngine {
       promises.push(this.storage.queryBySalience(0.5));
     }
 
-    // Branch E: fallback — all nodes (small datasets only)
+    // Branch E: identity-scoped pulls — restrict to participants when set.
+    if (query.userId) promises.push(this.storage.queryByUserId(query.userId));
+    if (query.actor) promises.push(this.storage.queryByActor(query.actor));
+    if (query.target) promises.push(this.storage.queryByTarget(query.target));
+
+    // Branch F: fallback — all nodes (small datasets only)
     if (promises.length === 0) {
       promises.push(this.storage.listAll());
     }
@@ -225,7 +230,7 @@ export class RetrievalEngine {
 
     // Level filter — fallback to all levels if requested level has no matches
     if (query.level) {
-      const filtered = results.filter((n) => n.hierarchy.level === query.level);
+      const filtered = results.filter((n) => n.level === query.level);
       if (filtered.length > 0) {
         results = filtered;
       }
@@ -246,13 +251,24 @@ export class RetrievalEngine {
       results = results.filter((n) => n.meta.agentRole === query.agentRole);
     }
 
+    // userId / actor / target filters — narrow to a participant scope
+    if (query.userId) {
+      results = results.filter((n) => n.userId === query.userId);
+    }
+    if (query.actor) {
+      results = results.filter((n) => n.actor === query.actor);
+    }
+    if (query.target) {
+      results = results.filter((n) => n.target === query.target);
+    }
+
     // Strategy-specific adjustments
     switch (query.strategy) {
       case "factual":
         // Boost exact / high-similarity matches, prefer atomic_actions
         results = results.map((n) => {
           let boost = 1;
-          if (n.hierarchy.level === "atomic_action") boost *= 1.2;
+          if (n.level === "atomic_action") boost *= 1.2;
           if (n.payload.salienceScore > 0.8) boost *= 1.1;
           return { ...n, _score: n._score * boost };
         });
@@ -262,7 +278,7 @@ export class RetrievalEngine {
         // Boost recent nodes and events (which span time)
         results = results.map((n) => {
           let boost = 1;
-          if (n.hierarchy.level === "event") boost *= 1.3;
+          if (n.level === "event") boost *= 1.3;
           // Recency decay: newer = higher boost
           const ageHours = (Date.now() - n.timestamp) / 3600000;
           boost *= Math.max(0.5, 1 - ageHours / 168); // 1 week half-life
@@ -275,8 +291,8 @@ export class RetrievalEngine {
         // because they aggregate multiple atomic actions
         results = results.map((n) => {
           let boost = 1;
-          if (n.hierarchy.level === "event") boost *= 1.4;
-          if (n.hierarchy.childrenIds && n.hierarchy.childrenIds.length > 2) boost *= 1.2;
+          if (n.level === "event") boost *= 1.4;
+          if (n.childrenIds && n.childrenIds.length > 2) boost *= 1.2;
           return { ...n, _score: n._score * boost };
         });
         break;

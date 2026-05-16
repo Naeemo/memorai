@@ -15,7 +15,7 @@ export class IndexedDBAdapter implements StorageAdapter {
   private db: IDBDatabase | null = null;
   private readonly dbName: string;
   private readonly storeName = "memories";
-  private readonly version = 1;
+  private readonly version = 2;
 
   constructor(opts: { dbName?: string } = {}) {
     this.dbName = opts.dbName ?? "memorai";
@@ -35,19 +35,22 @@ export class IndexedDBAdapter implements StorageAdapter {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const tx = (event.target as IDBOpenDBRequest).transaction;
+        let store: IDBObjectStore;
         if (!db.objectStoreNames.contains(this.storeName)) {
-          const store = db.createObjectStore(this.storeName, { keyPath: "id" });
-          // Indexes for efficient queries
-          store.createIndex("timestamp", "timestamp", { unique: false });
-          store.createIndex("salience", "payload.salienceScore", {
-            unique: false,
-          });
-          store.createIndex("level", "hierarchy.level", { unique: false });
-          store.createIndex("parentId", "hierarchy.parentId", {
-            unique: false,
-          });
-          store.createIndex("agentRole", "meta.agentRole", { unique: false });
+          store = db.createObjectStore(this.storeName, { keyPath: "id" });
+        } else {
+          store = tx!.objectStore(this.storeName);
         }
+        // Indexes — created idempotently
+        ensureIndex(store, "timestamp", "timestamp");
+        ensureIndex(store, "salience", "payload.salienceScore");
+        ensureIndex(store, "level", "level");
+        ensureIndex(store, "parentId", "parentId");
+        ensureIndex(store, "agentRole", "meta.agentRole");
+        ensureIndex(store, "userId", "userId");
+        ensureIndex(store, "actor", "actor");
+        ensureIndex(store, "target", "target");
       };
     });
   }
@@ -93,27 +96,7 @@ export class IndexedDBAdapter implements StorageAdapter {
   }
 
   async queryByTimeRange(start: number, end: number, opts?: QueryOpts): Promise<MemoryNode[]> {
-    const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(this.storeName, "readonly");
-      const store = tx.objectStore(this.storeName);
-      const index = store.index("timestamp");
-      const range = IDBKeyRange.bound(start, end);
-      const request = index.openCursor(range);
-
-      const results: MemoryNode[] = [];
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (cursor) {
-          results.push(cursor.value as MemoryNode);
-          cursor.continue();
-        } else {
-          resolve(this.applyOpts(results, opts));
-        }
-      };
-      request.onerror = () =>
-        reject(request.error ?? new Error("IndexedDB time range query failed"));
-    });
+    return this.applyOpts(await this.scanIndex("timestamp", IDBKeyRange.bound(start, end)), opts);
   }
 
   async queryByTags(tags: string[], opts?: QueryOpts): Promise<MemoryNode[]> {
@@ -125,54 +108,32 @@ export class IndexedDBAdapter implements StorageAdapter {
   }
 
   async queryBySalience(minScore: number, opts?: QueryOpts): Promise<MemoryNode[]> {
-    const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(this.storeName, "readonly");
-      const store = tx.objectStore(this.storeName);
-      const index = store.index("salience");
-      const range = IDBKeyRange.lowerBound(minScore);
-      const request = index.openCursor(range);
+    return this.applyOpts(
+      await this.scanIndex("salience", IDBKeyRange.lowerBound(minScore)),
+      opts,
+    );
+  }
 
-      const results: MemoryNode[] = [];
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (cursor) {
-          results.push(cursor.value as MemoryNode);
-          cursor.continue();
-        } else {
-          resolve(this.applyOpts(results, opts));
-        }
-      };
-      request.onerror = () => reject(request.error ?? new Error("IndexedDB salience query failed"));
-    });
+  async queryByUserId(userId: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    return this.applyOpts(await this.scanIndex("userId", userId), opts);
+  }
+
+  async queryByActor(actor: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    return this.applyOpts(await this.scanIndex("actor", actor), opts);
+  }
+
+  async queryByTarget(target: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    return this.applyOpts(await this.scanIndex("target", target), opts);
   }
 
   async getChildren(parentId: string): Promise<MemoryNode[]> {
-    const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(this.storeName, "readonly");
-      const store = tx.objectStore(this.storeName);
-      const index = store.index("parentId");
-      const request = index.openCursor(parentId);
-
-      const results: MemoryNode[] = [];
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (cursor) {
-          results.push(cursor.value as MemoryNode);
-          cursor.continue();
-        } else {
-          resolve(results);
-        }
-      };
-      request.onerror = () => reject(request.error ?? new Error("IndexedDB getChildren failed"));
-    });
+    return this.scanIndex("parentId", parentId);
   }
 
   async getParent(childId: string): Promise<MemoryNode | null> {
     const child = await this.get(childId);
-    if (!child?.hierarchy.parentId) return null;
-    return this.get(child.hierarchy.parentId);
+    if (!child?.parentId) return null;
+    return this.get(child.parentId);
   }
 
   async listAll(opts?: QueryOpts): Promise<MemoryNode[]> {
@@ -206,11 +167,36 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   // ─── Helpers ───
 
+  private async scanIndex(
+    name: string,
+    range: IDBKeyRange | IDBValidKey,
+  ): Promise<MemoryNode[]> {
+    const db = await this.getDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.storeName, "readonly");
+      const store = tx.objectStore(this.storeName);
+      const index = store.index(name);
+      const request = index.openCursor(range);
+      const results: MemoryNode[] = [];
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          results.push(cursor.value as MemoryNode);
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+      request.onerror = () =>
+        reject(request.error ?? new Error(`IndexedDB scanIndex(${name}) failed`));
+    });
+  }
+
   private applyOpts(nodes: MemoryNode[], opts?: QueryOpts): MemoryNode[] {
     let results = nodes;
 
     if (opts?.level) {
-      results = results.filter((n) => n.hierarchy.level === opts.level);
+      results = results.filter((n) => n.level === opts.level);
     }
 
     if (opts?.orderBy) {
@@ -240,5 +226,11 @@ export class IndexedDBAdapter implements StorageAdapter {
     }
 
     return results;
+  }
+}
+
+function ensureIndex(store: IDBObjectStore, name: string, keyPath: string): void {
+  if (!store.indexNames.contains(name)) {
+    store.createIndex(name, keyPath, { unique: false });
   }
 }

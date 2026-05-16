@@ -1,5 +1,5 @@
 // Core type definitions for Memorai
-// Based on StreamingClaw StreamingMemory architecture
+// Based on StreamingClaw StreamingMemory architecture + Event API extensions
 
 // ─────────────────────────────────────────────────────────────
 // Memory Node — the fundamental unit of memory
@@ -24,18 +24,20 @@ export interface MemoryPayload {
   modality: Modality[];
 }
 
-export interface HierarchyLink {
-  level: MemoryLevel;
-  parentId?: string;
-  childrenIds?: string[];
-  mergedFrom?: string[];
-}
-
 export interface MemoryMeta {
+  /** AI agent that processed/wrote this memory (from agentProfile). */
   sourceAgent: string;
+  /** Free-form agent role label. */
   agentRole: string;
+  /** Free-form context attached at write time. */
   writeContext?: string;
+  /** Additional event participants beyond actor/target (e.g., multi-party calls). */
+  participants?: string[];
+  /** Original Event.id, for back-reference and dedup. */
+  eventId?: string;
+  /** Wall-clock of last retrieve(). */
   lastAccessed?: number;
+  /** Number of times this node has been retrieved. */
   accessCount: number;
 }
 
@@ -43,20 +45,48 @@ export interface MemoryNode {
   id: string;
   timestamp: number; // Unix ms — when this memory ends
   duration: number; // Duration in ms
+  level: MemoryLevel;
+  /** Data ownership / multi-tenant scope. */
+  userId?: string;
+  /** Who produced the original event (person / system). */
+  actor?: string;
+  /** Whom the event was directed at. */
+  target?: string;
+  parentId?: string;
+  childrenIds?: string[];
+  mergedFrom?: string[];
   payload: MemoryPayload;
-  hierarchy: HierarchyLink;
   meta: MemoryMeta;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Write
+// Write (internal API surface)
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * Loose write input — fields that have natural defaults are optional. The
+ * internal `write()` normalizes this to a fully-populated `MemoryNode`.
+ */
+export interface MemoryPayloadInput {
+  summary: string;
+  tags?: string[]; // default []
+  salienceScore?: number; // default 0.5
+  modality?: Modality[]; // default ["text"]
+  description?: string;
+  media?: MediaPayload;
+  embedding?: number[];
+}
 
 export interface WritePayload {
   timestamp?: number;
   duration?: number;
-  payload: Omit<MemoryPayload, "embedding"> & { embedding?: number[] };
-  hierarchy?: Partial<HierarchyLink>;
+  payload: MemoryPayloadInput;
+  userId?: string;
+  actor?: string;
+  target?: string;
+  parentId?: string;
+  childrenIds?: string[];
+  mergedFrom?: string[];
   meta?: Partial<MemoryMeta>;
 }
 
@@ -87,6 +117,9 @@ export interface StorageAdapter {
   queryByTimeRange: (start: number, end: number, opts?: QueryOpts) => Promise<MemoryNode[]>;
   queryByTags: (tags: string[], opts?: QueryOpts) => Promise<MemoryNode[]>;
   queryBySalience: (minScore: number, opts?: QueryOpts) => Promise<MemoryNode[]>;
+  queryByUserId: (userId: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
+  queryByActor: (actor: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
+  queryByTarget: (target: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
   getChildren: (parentId: string) => Promise<MemoryNode[]>;
   getParent: (childId: string) => Promise<MemoryNode | null>;
   listAll: (opts?: QueryOpts) => Promise<MemoryNode[]>;
@@ -104,20 +137,58 @@ export interface EmbeddingService {
 }
 
 // ─────────────────────────────────────────────────────────────
+// LLM Service (used by LLMExtractor + salience scoring)
+// ─────────────────────────────────────────────────────────────
+
+export interface LLMMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface LLMCompletionOptions {
+  temperature?: number;
+  maxTokens?: number;
+  responseFormat?: "text" | "json";
+  signal?: AbortSignal;
+}
+
+export interface LLMService {
+  /** Single-turn completion. Required. */
+  complete: (prompt: string, opts?: LLMCompletionOptions) => Promise<string>;
+  /** Multi-turn chat. Optional — falls back to `complete` joining messages. */
+  chat?: (messages: LLMMessage[], opts?: LLMCompletionOptions) => Promise<string>;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Evolution
 // ─────────────────────────────────────────────────────────────
+
+export interface AutoEvolveTriggers {
+  /** Fire `evolve()` every N writes since the last evolve. Default 100. */
+  onWriteCount?: number;
+  /** Fire `evolve()` after N ms of write-idle. Default 5000. */
+  onIdleMs?: number;
+  /** Fire `evolve()` when stmMaxSize is reached. Default true. */
+  onStmFull?: boolean;
+  /** Fire one last `evolve()` from close(). Default true. */
+  onClose?: boolean;
+  /** Background interval (ms). Off by default — explicit opt-in. */
+  intervalMs?: number;
+}
 
 export interface EvolutionConfig {
   semanticMergeThreshold: number; // default: 0.85
   temporalGapThresholdMs: number; // default: 30000
   sceneSimilarityThreshold: number; // default: 0.80
   eventTimeWindowMs: number; // default: 300000
-  autoEvolveIntervalMs: number; // default: 60000
   stmMaxSize: number; // default: 1000
+  /** "auto" runs triggers; "manual" requires explicit `evolve()` calls. */
+  mode: "auto" | "manual";
+  autoTriggers: AutoEvolveTriggers;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Retrieval
+// Retrieval (internal — wrapped by recall())
 // ─────────────────────────────────────────────────────────────
 
 export type RetrievalStrategy = "factual" | "temporal" | "inferential" | "exploratory";
@@ -132,6 +203,9 @@ export interface RetrievalQuery {
   timeRange?: { start: number; end: number };
   traversalOrder?: TraversalOrder;
   agentRole?: string;
+  userId?: string;
+  actor?: string;
+  target?: string;
   level?: MemoryLevel;
   maxCandidates?: number;
   topK?: number;
@@ -168,9 +242,125 @@ export interface ReadPolicy {
 
 export interface AgentMemoryProfile {
   agentId: string;
-  role: "reasoning" | "proactive" | "custom";
+  /** Free-form role label — "reasoning" / "proactive" / app-specific. */
+  role: string;
   writePolicy: WritePolicy;
   readPolicy: ReadPolicy;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Event API (public)
+// ─────────────────────────────────────────────────────────────
+
+export type EventContent =
+  | { kind: "message"; text: string }
+  | { kind: "speech"; text: string; audio?: AudioBuffer | string }
+  | { kind: "image"; image: ImageData | string; caption?: string }
+  | { kind: "audio"; audio: AudioBuffer | string; transcript?: string }
+  | { kind: "video"; video: string; frames?: ImageData[]; transcript?: string }
+  | { kind: "file"; mime: string; ref: string; text?: string }
+  | { kind: "observation"; text: string }
+  | { kind: "custom"; text: string; data?: Record<string, unknown> };
+
+export interface Event {
+  // —— time anchor (one required) ——
+  at?: number | Date;
+  during?: { start: number | Date; end: number | Date };
+
+  // —— participants ——
+  actor: string;
+  target?: string;
+  participants?: string[];
+
+  // —— payload ——
+  content: EventContent;
+
+  // —— optional metadata ——
+  userId?: string;
+  context?: string;
+  tags?: string[];
+  salienceHint?: number;
+  id?: string;
+}
+
+export interface RecordHandle {
+  readonly eventIds: readonly string[];
+  readonly nodes: Promise<MemoryNode[]>;
+  done(): boolean;
+  cancel(): void;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Extraction Pipeline
+// ─────────────────────────────────────────────────────────────
+
+export interface ExtractContext {
+  /** Recent memories from the same actor/target window — for coreference. */
+  recent: MemoryNode[];
+  embedding: EmbeddingService;
+  llm?: LLMService;
+  now(): number;
+  signal?: AbortSignal;
+}
+
+export interface Extractor {
+  /** Convert a raw event into one or more memory writes. */
+  extract: (event: Event, ctx: ExtractContext) => Promise<WritePayload[]>;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Recall API (public)
+// ─────────────────────────────────────────────────────────────
+
+export interface RecallOptions {
+  topK?: number;
+  timeRange?: { start: number; end: number };
+  actor?: string;
+  target?: string;
+  userId?: string;
+  modality?: Modality[];
+  level?: MemoryLevel;
+  strategy?: RetrievalStrategy;
+  traversalOrder?: TraversalOrder;
+  /** Power user escape hatch — overrides go straight to RetrievalQuery. */
+  overrideQuery?: Partial<RetrievalQuery>;
+}
+
+export interface RecalledMemory {
+  id: string;
+  at: number;
+  during?: { start: number; end: number };
+  userId?: string;
+  actor?: string;
+  target?: string;
+  summary: string;
+  description?: string;
+  tags: string[];
+  salienceScore: number;
+  evidence?: MediaPayload;
+  score: number;
+  level: MemoryLevel;
+}
+
+export interface RecallResult {
+  memories: RecalledMemory[];
+  confidence: number;
+  totalScanned: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Patch (used by Memorai.update)
+// ─────────────────────────────────────────────────────────────
+
+export interface NodePatch {
+  payload?: Partial<MemoryPayload>;
+  meta?: Partial<MemoryMeta>;
+  userId?: string;
+  actor?: string;
+  target?: string;
+  parentId?: string;
+  childrenIds?: string[];
+  mergedFrom?: string[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -181,8 +371,15 @@ export interface MemoraiConfig {
   storage: StorageAdapter;
   embedding: EmbeddingService;
   compression?: CompressionService;
+  llm?: LLMService;
+  extractor?: Extractor;
   evolution?: Partial<EvolutionConfig>;
   agentProfile?: AgentMemoryProfile;
+  /** Default actor when Event.actor is omitted. */
+  defaultActor?: string;
+  /** Default userId when Event.userId is omitted. */
+  defaultUserId?: string;
+  /** Logical namespace (multi-tenant separation). */
   namespace?: string;
 }
 

@@ -1,13 +1,23 @@
 import { EvolutionEngine } from "./evolution.js";
 import { RetrievalEngine } from "./retrieval.js";
 import { generateId } from "./utils.js";
+import { LightExtractor, LLMExtractor } from "./extraction/index.js";
 import type {
   AgentMemoryProfile,
+  AutoEvolveTriggers,
   CompressionService,
+  Event,
+  Extractor,
   ListOptions,
   MediaPayload,
   MemoraiConfig,
   MemoryNode,
+  Modality,
+  NodePatch,
+  RecallOptions,
+  RecallResult,
+  RecalledMemory,
+  RecordHandle,
   RetrievalQuery,
   RetrievalResult,
   WriteOptions,
@@ -29,71 +39,200 @@ const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   },
 };
 
+const DEFAULT_TRIGGERS: Required<Omit<AutoEvolveTriggers, "intervalMs">> & { intervalMs?: number } = {
+  onWriteCount: 100,
+  onIdleMs: 5000,
+  onStmFull: true,
+  onClose: true,
+};
+
 /**
- * Memorai — the core memory engine.
+ * Memorai — the public memory engine.
  *
- * Features:
- * - Write / read multimodal memory nodes
- * - Hierarchical Memory Evolution (HME): segment → atomic_action → event
- * - Pluggable storage, embeddings, retrieval
- * - Cross-agent memory profiles
- * - Background periodic evolution (optional)
+ * Primary surface (Event API):
+ *   - recordEvent(event)        record one event; returns RecordHandle
+ *   - recordEvents(events)      record many events
+ *   - recall(question, opts?)   natural-language recall
+ *   - recallByActor/Time/Tag/Relationship  structured recall
+ *
+ * Internal surface (`@internal` — for extractors, tests, and benchmarks):
+ *   - write / writeBatch        structured-payload write
+ *   - retrieve                  low-level retrieval
+ *   - evolve                    manual L2 aggregation
  */
 export class Memorai {
   private readonly retrieval: RetrievalEngine;
   private readonly evolution: EvolutionEngine;
   private readonly agentProfile: AgentMemoryProfile;
-  private timer?: ReturnType<typeof setTimeout>;
+  private readonly extractor: Extractor;
+  private readonly evolveMode: "auto" | "manual";
+  private readonly triggers: typeof DEFAULT_TRIGGERS;
+  private writesSinceEvolve = 0;
+  private stmCount = 0;
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private intervalTimer?: ReturnType<typeof setTimeout>;
+  private evolveInFlight?: Promise<void>;
 
   constructor(private readonly config: MemoraiConfig) {
     this.retrieval = new RetrievalEngine(config.storage);
     this.evolution = new EvolutionEngine(config.storage, config.evolution);
     this.agentProfile = config.agentProfile ?? DEFAULT_AGENT_PROFILE;
+    this.evolveMode = config.evolution?.mode ?? "auto";
+    this.triggers = { ...DEFAULT_TRIGGERS, ...(config.evolution?.autoTriggers ?? {}) };
 
-    // Start background evolution loop if configured
-    const interval = config.evolution?.autoEvolveIntervalMs;
-    if (interval && interval > 0) {
-      this.startEvolutionLoop(interval);
+    if (config.extractor) {
+      this.extractor = config.extractor;
+    } else if (config.llm) {
+      this.extractor = new LLMExtractor({ llm: config.llm });
+    } else {
+      this.extractor = new LightExtractor();
+    }
+
+    if (this.evolveMode === "auto" && this.triggers.intervalMs && this.triggers.intervalMs > 0) {
+      this.startIntervalLoop(this.triggers.intervalMs);
     }
   }
 
-  private startEvolutionLoop(intervalMs: number): void {
-    const run = () => {
-      this.evolution
-        .evolve()
-        .catch((error: unknown) => {
-          console.error("[Memorai] Background evolution failed:", error);
-        })
-        .finally(() => {
-          if (this.timer !== undefined) {
-            this.timer = setTimeout(run, intervalMs);
-          }
-        });
-    };
-    this.timer = setTimeout(run, intervalMs);
-  }
-
-  // ─── Write ───
+  // ═══════════════════════════════════════════════════════════
+  // Public — Event API
+  // ═══════════════════════════════════════════════════════════
 
   /**
-   * Store a new memory segment.
-   *
-   * Internally triggers Level-1 evolution: the segment is either merged
-   * into an existing atomic action or promoted to a new atomic action.
+   * Record a single event. Returns a RecordHandle immediately — extraction
+   * runs in the background. Await `handle.nodes` to block until extraction
+   * completes, or fire-and-forget for low-latency hot paths.
+   */
+  recordEvent(event: Event): RecordHandle {
+    return this.recordMany([event]);
+  }
+
+  /**
+   * Record many events. Returns one handle covering all of them. Events are
+   * processed in array order.
+   */
+  recordEvents(events: Event[]): RecordHandle {
+    return this.recordMany(events);
+  }
+
+  private recordMany(events: Event[]): RecordHandle {
+    const ids = events.map((e) => e.id ?? generateId());
+    const controller = new AbortController();
+    let isDone = false;
+
+    const nodesPromise = (async (): Promise<MemoryNode[]> => {
+      const out: MemoryNode[] = [];
+      const ctx = {
+        recent: [] as MemoryNode[],
+        embedding: this.config.embedding,
+        llm: this.config.llm,
+        now: () => Date.now(),
+        signal: controller.signal,
+      };
+      for (let i = 0; i < events.length; i++) {
+        if (controller.signal.aborted) break;
+        const ev = events[i];
+        const enriched: Event = {
+          ...ev,
+          id: ids[i],
+          actor: ev.actor ?? this.config.defaultActor ?? this.agentProfile.agentId,
+          userId: ev.userId ?? this.config.defaultUserId,
+        };
+        const payloads = await this.extractor.extract(enriched, ctx);
+        const written = await this.writeBatch(payloads);
+        out.push(...written);
+      }
+      isDone = true;
+      return out;
+    })();
+
+    return {
+      eventIds: ids,
+      nodes: nodesPromise,
+      done: () => isDone,
+      cancel: () => controller.abort(),
+    };
+  }
+
+  /**
+   * Natural-language recall. Returns the most relevant memories along with
+   * confidence and traversal stats.
+   */
+  async recall(question: string, opts: RecallOptions = {}): Promise<RecallResult> {
+    const query = this.buildRecallQuery(question, opts);
+    const result = await this.retrieve(query);
+    return this.toRecallResult(result);
+  }
+
+  /** Recall events where the named actor is the producer. */
+  recallByActor(actor: string, opts: RecallOptions = {}): Promise<RecallResult> {
+    return this.recall(opts.overrideQuery?.text ?? "", { ...opts, actor });
+  }
+
+  /** Recall events between two parties (in either direction). */
+  async recallByRelationship(
+    a: string,
+    b: string,
+    opts: RecallOptions = {},
+  ): Promise<RecallResult> {
+    // Two queries, merge.
+    const [forward, backward] = await Promise.all([
+      this.recall(opts.overrideQuery?.text ?? "", { ...opts, actor: a, target: b }),
+      this.recall(opts.overrideQuery?.text ?? "", { ...opts, actor: b, target: a }),
+    ]);
+    const merged = new Map<string, RecalledMemory>();
+    for (const m of [...forward.memories, ...backward.memories]) merged.set(m.id, m);
+    const memories = [...merged.values()].sort((x, y) => y.score - x.score);
+    const topK = opts.topK ?? 10;
+    return {
+      memories: memories.slice(0, topK),
+      confidence: (forward.confidence + backward.confidence) / 2,
+      totalScanned: forward.totalScanned + backward.totalScanned,
+    };
+  }
+
+  /** Recall events in a time window. */
+  recallByTime(
+    range: { start: number; end: number },
+    opts: RecallOptions = {},
+  ): Promise<RecallResult> {
+    return this.recall(opts.overrideQuery?.text ?? "", { ...opts, timeRange: range });
+  }
+
+  /** Recall events matching one or more tags. */
+  async recallByTag(tags: string[], opts: RecallOptions = {}): Promise<RecallResult> {
+    const nodes = await this.config.storage.queryByTags(tags, { limit: opts.topK ?? 10 });
+    return this.toRecallResult({
+      nodes,
+      confidence: nodes.length > 0 ? 1 : 0,
+      traversalStats: { scanned: nodes.length, matched: nodes.length, pruned: 0, timeMs: 0 },
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Internal — Structured Write
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * @internal Store a pre-extracted memory segment. Used by extractors,
+   * tests, and benchmark harnesses. Application code should use
+   * {@link recordEvent} instead.
    */
   async write(payload: WritePayload, opts: WriteOptions = {}): Promise<MemoryNode> {
     const id = generateId();
     const now = Date.now();
     const profile = this.agentProfile;
 
-    // Validate write policy
+    const tags = payload.payload.tags ?? [];
+    const salienceScore = payload.payload.salienceScore ?? 0.5;
+    const modality: Modality[] = payload.payload.modality ?? ["text"];
+
     const allowedLevels = profile.writePolicy.levels;
     if (!allowedLevels.includes("segment")) {
       throw new Error(
         `Writing segments not allowed by write policy for agent '${profile.agentId}'`,
       );
     }
-    for (const m of payload.payload.modality) {
+    for (const m of modality) {
       if (!profile.writePolicy.modalities.includes(m)) {
         throw new Error(
           `Modality '${m}' not allowed by write policy for agent '${profile.agentId}'`,
@@ -101,16 +240,13 @@ export class Memorai {
       }
     }
 
-    // Generate embedding if needed
     let embedding = payload.payload.embedding;
     if (!opts.skipEmbedding && !embedding && payload.payload.summary) {
       embedding = await this.config.embedding.embed(payload.payload.summary);
     }
 
-    // Apply salience boost
-    const boostedSalience = payload.payload.salienceScore * profile.writePolicy.salienceBoost;
+    const boostedSalience = salienceScore * profile.writePolicy.salienceBoost;
 
-    // Compress media if configured
     let media: MediaPayload | undefined = payload.payload.media;
     if (media && this.config.compression) {
       media = await this.compressMedia(media, this.config.compression);
@@ -120,49 +256,49 @@ export class Memorai {
       id,
       timestamp: payload.timestamp ?? now,
       duration: payload.duration ?? 0,
+      level: "segment",
+      userId: payload.userId,
+      actor: payload.actor,
+      target: payload.target,
+      parentId: payload.parentId,
+      childrenIds: payload.childrenIds,
+      mergedFrom: payload.mergedFrom,
       payload: {
-        ...payload.payload,
-        embedding,
-        salienceScore: boostedSalience,
+        summary: payload.payload.summary,
+        description: payload.payload.description,
         media,
-      },
-      hierarchy: {
-        level: "segment",
-        parentId: payload.hierarchy?.parentId,
-        childrenIds: payload.hierarchy?.childrenIds,
-        mergedFrom: payload.hierarchy?.mergedFrom,
+        embedding,
+        tags,
+        salienceScore: boostedSalience,
+        modality,
       },
       meta: {
         sourceAgent: payload.meta?.sourceAgent ?? profile.agentId,
         agentRole: payload.meta?.agentRole ?? profile.role,
         writeContext: payload.meta?.writeContext,
+        participants: payload.meta?.participants,
+        eventId: payload.meta?.eventId,
         lastAccessed: now,
         accessCount: 0,
       },
     };
 
     await this.config.storage.put(segment);
-
-    // Level-1 HME: segment → atomic_action
     await this.evolution.processSegment(segment);
+    this.onAfterWrite();
 
     return segment;
   }
 
   /**
-   * Batch write multiple memory segments.
-   *
-   * Optimizations:
-   * - Embeddings are generated in parallel batches if the service supports it.
-   * - Writes themselves are sequential to avoid race conditions in evolution,
-   *   but the expensive embedding step is parallelized.
+   * @internal Batch write multiple memory segments. Used by the extractor
+   * pipeline.
    */
   async writeBatch(payloads: WritePayload[]): Promise<MemoryNode[]> {
     const embeddingService = this.config.embedding;
     const hasEmbedBatch = !!embeddingService.embedBatch;
 
     if (hasEmbedBatch) {
-      // Batch-embed all payloads that need embeddings
       const toEmbed: { index: number; text: string }[] = [];
       for (const [i, p] of payloads.entries()) {
         if (!p.payload.embedding && p.payload.summary) {
@@ -185,11 +321,13 @@ export class Memorai {
     return nodes;
   }
 
-  // ─── Read ───
+  // ═══════════════════════════════════════════════════════════
+  // Internal — Low-level read
+  // ═══════════════════════════════════════════════════════════
 
   /**
-   * Retrieve memories matching a query.
-   * Defaults to the agent's read policy if not overridden.
+   * @internal Direct retrieval engine access. Most callers should use
+   * {@link recall} or its structured variants.
    */
   async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
     const mergedQuery: RetrievalQuery = {
@@ -214,9 +352,7 @@ export class Memorai {
     return result;
   }
 
-  /**
-   * Get a specific memory node by ID.
-   */
+  /** Get a specific memory node by ID. */
   async get(id: string): Promise<MemoryNode | null> {
     const node = await this.config.storage.get(id);
     if (node) {
@@ -227,9 +363,7 @@ export class Memorai {
     return node;
   }
 
-  /**
-   * List memories with filtering and pagination.
-   */
+  /** List memories with filtering and pagination. */
   async list(opts?: ListOptions): Promise<MemoryNode[]> {
     const { agentRole, limit, offset, ...queryOpts } = opts ?? {};
     let nodes = await this.config.storage.listAll(queryOpts);
@@ -238,7 +372,6 @@ export class Memorai {
       nodes = nodes.filter((n) => n.meta.agentRole === agentRole);
     }
 
-    // Apply pagination after client-side filtering
     if (limit !== undefined || offset !== undefined) {
       const start = offset ?? 0;
       const end = limit !== undefined ? start + limit : nodes.length;
@@ -248,24 +381,35 @@ export class Memorai {
     return nodes;
   }
 
-  // ─── Evolution ───
+  // ═══════════════════════════════════════════════════════════
+  // Evolution
+  // ═══════════════════════════════════════════════════════════
 
   /**
-   * Manually trigger Level-2 memory evolution (atomic_action → event).
-   *
-   * This is also run automatically in the background when
-   * `autoEvolveIntervalMs` is configured.
+   * @internal Manually trigger Level-2 evolution. Normally auto-triggered.
+   * Multiple concurrent calls coalesce — only one evolution runs at a time.
    */
   evolve(): Promise<void> {
-    return this.evolution.evolve();
+    if (this.evolveInFlight) return this.evolveInFlight;
+    const p = (async () => {
+      try {
+        await this.evolution.evolve();
+        this.writesSinceEvolve = 0;
+        this.stmCount = 0;
+        this.clearIdleTimer();
+      } finally {
+        this.evolveInFlight = undefined;
+      }
+    })();
+    this.evolveInFlight = p;
+    return p;
   }
 
-  // ─── Management ───
+  // ═══════════════════════════════════════════════════════════
+  // Management
+  // ═══════════════════════════════════════════════════════════
 
-  /**
-   * Delete a memory node.
-   * If cascade=true, also delete all children recursively.
-   */
+  /** Delete a memory node. If cascade=true, delete all children recursively. */
   async delete(id: string, cascade = false): Promise<void> {
     const children = await this.config.storage.getChildren(id);
 
@@ -274,19 +418,17 @@ export class Memorai {
         await this.delete(child.id, true);
       }
     } else {
-      // Detach surviving children so they don't reference a deleted parent
       for (const child of children) {
-        child.hierarchy.parentId = undefined;
+        child.parentId = undefined;
         await this.config.storage.put(child);
       }
     }
 
-    // Remove this node from its parent's childrenIds before deleting
     const node = await this.config.storage.get(id);
-    if (node?.hierarchy.parentId) {
-      const parent = await this.config.storage.get(node.hierarchy.parentId);
-      if (parent?.hierarchy.childrenIds) {
-        parent.hierarchy.childrenIds = parent.hierarchy.childrenIds.filter((cid) => cid !== id);
+    if (node?.parentId) {
+      const parent = await this.config.storage.get(node.parentId);
+      if (parent?.childrenIds) {
+        parent.childrenIds = parent.childrenIds.filter((cid) => cid !== id);
         await this.config.storage.put(parent);
       }
     }
@@ -294,35 +436,124 @@ export class Memorai {
     await this.config.storage.delete(id);
   }
 
-  /**
-   * Update a memory node's metadata.
-   */
-  async update(
-    id: string,
-    patch: Partial<{
-      payload: Partial<MemoryNode["payload"]>;
-      hierarchy: Partial<MemoryNode["hierarchy"]>;
-      meta: Partial<MemoryNode["meta"]>;
-    }>,
-  ): Promise<MemoryNode> {
+  /** Update a memory node's fields. */
+  async update(id: string, patch: NodePatch): Promise<MemoryNode> {
     const node = await this.config.storage.get(id);
     if (!node) throw new Error(`Memory node not found: ${id}`);
 
-    if (patch.payload) {
-      node.payload = { ...node.payload, ...patch.payload };
-    }
-    if (patch.hierarchy) {
-      node.hierarchy = { ...node.hierarchy, ...patch.hierarchy };
-    }
-    if (patch.meta) {
-      node.meta = { ...node.meta, ...patch.meta };
-    }
+    if (patch.payload) node.payload = { ...node.payload, ...patch.payload };
+    if (patch.meta) node.meta = { ...node.meta, ...patch.meta };
+    if ("userId" in patch) node.userId = patch.userId;
+    if ("actor" in patch) node.actor = patch.actor;
+    if ("target" in patch) node.target = patch.target;
+    if ("parentId" in patch) node.parentId = patch.parentId;
+    if ("childrenIds" in patch) node.childrenIds = patch.childrenIds;
+    if ("mergedFrom" in patch) node.mergedFrom = patch.mergedFrom;
 
     await this.config.storage.put(node);
     return node;
   }
 
-  // ─── Helpers ───
+  /** Close all resources (storage, background timers, etc.). */
+  async close(): Promise<void> {
+    this.clearIdleTimer();
+    if (this.intervalTimer) {
+      clearTimeout(this.intervalTimer);
+      this.intervalTimer = undefined;
+    }
+    if (this.evolveMode === "auto" && this.triggers.onClose !== false) {
+      try {
+        await this.evolve();
+      } catch (err) {
+        console.error("[Memorai] evolve on close failed:", err);
+      }
+    }
+    await this.config.storage.close();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Helpers
+  // ═══════════════════════════════════════════════════════════
+
+  private buildRecallQuery(question: string, opts: RecallOptions): RetrievalQuery {
+    const base: RetrievalQuery = {
+      strategy: opts.strategy ?? "factual",
+      text: question || undefined,
+      topK: opts.topK ?? 10,
+      timeRange: opts.timeRange,
+      traversalOrder: opts.traversalOrder,
+      level: opts.level,
+      userId: opts.userId,
+      actor: opts.actor,
+      target: opts.target,
+    };
+    return { ...base, ...(opts.overrideQuery ?? {}) };
+  }
+
+  private toRecallResult(result: RetrievalResult): RecallResult {
+    const memories: RecalledMemory[] = result.nodes.map((n) => ({
+      id: n.id,
+      at: n.timestamp,
+      during:
+        n.duration && n.duration > 0
+          ? { start: n.timestamp - n.duration, end: n.timestamp }
+          : undefined,
+      userId: n.userId,
+      actor: n.actor,
+      target: n.target,
+      summary: n.payload.summary,
+      description: n.payload.description,
+      tags: n.payload.tags,
+      salienceScore: n.payload.salienceScore,
+      evidence: n.payload.media,
+      score: (n as MemoryNode & { _score?: number })._score ?? n.payload.salienceScore,
+      level: n.level,
+    }));
+    return {
+      memories,
+      confidence: result.confidence,
+      totalScanned: result.traversalStats.scanned,
+    };
+  }
+
+  private onAfterWrite(): void {
+    if (this.evolveMode !== "auto") return;
+    this.writesSinceEvolve += 1;
+    this.stmCount += 1;
+
+    if (this.triggers.onStmFull && this.stmCount >= (this.config.evolution?.stmMaxSize ?? 1000)) {
+      void this.evolve();
+      return;
+    }
+    if (this.triggers.onWriteCount && this.writesSinceEvolve >= this.triggers.onWriteCount) {
+      void this.evolve();
+      return;
+    }
+    if (this.triggers.onIdleMs) {
+      this.clearIdleTimer();
+      this.idleTimer = setTimeout(() => void this.evolve(), this.triggers.onIdleMs);
+    }
+  }
+
+  private startIntervalLoop(intervalMs: number): void {
+    const run = (): void => {
+      this.evolve()
+        .catch((err: unknown) => console.error("[Memorai] interval evolve failed:", err))
+        .finally(() => {
+          if (this.intervalTimer !== undefined) {
+            this.intervalTimer = setTimeout(run, intervalMs);
+          }
+        });
+    };
+    this.intervalTimer = setTimeout(run, intervalMs);
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+  }
 
   private async compressMedia(
     media: MediaPayload,
@@ -362,17 +593,6 @@ export class Memorai {
 
     return compressed;
   }
-
-  /**
-   * Close all resources (storage, background timers, etc.).
-   */
-  async close(): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = undefined;
-    }
-    await this.config.storage.close();
-  }
 }
 
 // Re-export everything from submodules for convenience
@@ -388,3 +608,25 @@ export {
   type CompressionService,
 } from "./compression.js";
 export { SQLiteAdapter, type SQLiteDatabase, type SQLiteStatement } from "./storage/index.js";
+export {
+  LightExtractor,
+  LLMExtractor,
+  WrapExtractor,
+  buildBaseWrite,
+  contentToTextAndMedia,
+  resolveTimeAnchor,
+  extractTags,
+  scoreSalience,
+} from "./extraction/index.js";
+
+// Suppress unused import warnings for types that are re-exported via types.js
+export type {
+  Event,
+  AutoEvolveTriggers,
+  Extractor,
+  NodePatch,
+  RecallOptions,
+  RecallResult,
+  RecalledMemory,
+  RecordHandle,
+} from "./types.js";

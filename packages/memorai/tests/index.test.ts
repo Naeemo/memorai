@@ -201,6 +201,7 @@ const makeNode = (
   id: generateId(),
   timestamp: Date.now(),
   duration: 1000,
+  level: "segment",
   payload: {
     summary,
     tags: [],
@@ -208,7 +209,6 @@ const makeNode = (
     modality: ["text"],
     embedding,
   },
-  hierarchy: { level: "segment" },
   meta: {
     sourceAgent: "test",
     agentRole: "reasoning",
@@ -278,7 +278,7 @@ describe("Memorai basics", () => {
     memory = new Memorai({
       storage: new MemoryAdapter(),
       embedding: new MockEmbeddingService(),
-      evolution: { autoEvolveIntervalMs: 0 },
+      evolution: { mode: "manual" },
     });
   });
 
@@ -309,7 +309,7 @@ describe("Memorai basics", () => {
         temporalGapThresholdMs: 1,
         sceneSimilarityThreshold: 0.5,
         eventTimeWindowMs: 600000,
-        autoEvolveIntervalMs: 0,
+        mode: "manual",
       },
     });
 
@@ -348,7 +348,7 @@ describe("Memorai basics", () => {
 
     events = await mem.list({ level: "event" });
     expect(events.length).toBe(1);
-    expect(events[0].hierarchy.childrenIds!.length).toBe(2);
+    expect(events[0].childrenIds!.length).toBe(2);
 
     await mem.close();
   });
@@ -373,7 +373,7 @@ describe("RetrievalEngine — Phase 3", () => {
       // Coding session (old)
       makeNode("coding session morning", [1, 0, 0, 0], {
         timestamp: now - 3600000,
-        hierarchy: { level: "atomic_action" },
+        level: "atomic_action",
         payload: {
           ...makeNode("", [1, 0, 0, 0]).payload,
           summary: "coding session morning",
@@ -385,7 +385,7 @@ describe("RetrievalEngine — Phase 3", () => {
       // Coding session (recent)
       makeNode("coding session afternoon", [0.95, 0.05, 0, 0], {
         timestamp: now - 600000,
-        hierarchy: { level: "atomic_action" },
+        level: "atomic_action",
         payload: {
           ...makeNode("", [0.95, 0.05, 0, 0]).payload,
           summary: "coding session afternoon",
@@ -397,7 +397,7 @@ describe("RetrievalEngine — Phase 3", () => {
       // Gym (recent, high salience)
       makeNode("gym workout", [0, 1, 0, 0], {
         timestamp: now - 300000,
-        hierarchy: { level: "segment" },
+        level: "segment",
         payload: {
           ...makeNode("", [0, 1, 0, 0]).payload,
           summary: "gym workout",
@@ -409,7 +409,7 @@ describe("RetrievalEngine — Phase 3", () => {
       // Cooking (old, low salience)
       makeNode("cooking dinner", [0, 0, 1, 0], {
         timestamp: now - 7200000,
-        hierarchy: { level: "segment" },
+        level: "segment",
         payload: {
           ...makeNode("", [0, 0, 1, 0]).payload,
           summary: "cooking dinner",
@@ -421,7 +421,8 @@ describe("RetrievalEngine — Phase 3", () => {
       // Event: coding project
       makeNode("coding project overview", [1, 0, 0, 0], {
         timestamp: now - 1800000,
-        hierarchy: { level: "event", childrenIds: ["child1", "child2"] },
+        level: "event",
+        childrenIds: ["child1", "child2"],
         payload: {
           ...makeNode("", [1, 0, 0, 0]).payload,
           summary: "coding project overview",
@@ -470,7 +471,7 @@ describe("RetrievalEngine — Phase 3", () => {
     });
 
     // Event node should be boosted
-    const eventNodes = result.nodes.filter((n) => n.hierarchy.level === "event");
+    const eventNodes = result.nodes.filter((n) => n.level === "event");
     expect(eventNodes.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -484,7 +485,7 @@ describe("RetrievalEngine — Phase 3", () => {
 
     // Should return diverse results
     expect(result.nodes.length).toBeGreaterThan(1);
-    const levels = new Set(result.nodes.map((n) => n.hierarchy.level));
+    const levels = new Set(result.nodes.map((n) => n.level));
     expect(levels.size).toBeGreaterThanOrEqual(1);
   });
 
@@ -664,7 +665,8 @@ describe("SQLiteAdapter", () => {
     const parent = makeNode("parent", [1, 0, 0, 0], { id: "p1" });
     const child = makeNode("child", [1, 0, 0, 0], {
       id: "c1",
-      hierarchy: { level: "segment", parentId: "p1" },
+      level: "segment",
+      parentId: "p1",
     });
     await adapter.put(parent);
     await adapter.put(child);

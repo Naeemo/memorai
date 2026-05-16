@@ -27,7 +27,8 @@ export interface SQLiteStatement {
  * scalar fields have dedicated columns.
  *
  * Schema:
- *   memories(id, json, timestamp, salience, level, parentId, agentRole)
+ *   memories(id, json, timestamp, salience, level, parentId, agentRole,
+ *            userId, actor, target)
  *   tags(nodeId, tag)
  */
 export class SQLiteAdapter implements StorageAdapter {
@@ -38,18 +39,22 @@ export class SQLiteAdapter implements StorageAdapter {
   private readonly byTimeRangeStmt: SQLiteStatement;
   private readonly byTagsStmt: SQLiteStatement;
   private readonly bySalienceStmt: SQLiteStatement;
+  private readonly byUserIdStmt: SQLiteStatement;
+  private readonly byActorStmt: SQLiteStatement;
+  private readonly byTargetStmt: SQLiteStatement;
   private readonly childrenStmt: SQLiteStatement;
   private readonly parentStmt: SQLiteStatement;
 
   constructor(private readonly db: SQLiteDatabase) {
     this.initSchema();
     this.insertStmt = db.prepare(
-      `INSERT INTO memories (id, json, timestamp, salience, level, parentId, agentRole)
-       VALUES (:id, :json, :timestamp, :salience, :level, :parentId, :agentRole)
+      `INSERT INTO memories (id, json, timestamp, salience, level, parentId, agentRole, userId, actor, target)
+       VALUES (:id, :json, :timestamp, :salience, :level, :parentId, :agentRole, :userId, :actor, :target)
        ON CONFLICT(id) DO UPDATE SET
          json=excluded.json, timestamp=excluded.timestamp,
          salience=excluded.salience, level=excluded.level,
-         parentId=excluded.parentId, agentRole=excluded.agentRole`,
+         parentId=excluded.parentId, agentRole=excluded.agentRole,
+         userId=excluded.userId, actor=excluded.actor, target=excluded.target`,
     );
     this.deleteStmt = db.prepare(`DELETE FROM memories WHERE id=?`);
     this.getStmt = db.prepare(`SELECT json FROM memories WHERE id=?`);
@@ -65,6 +70,15 @@ export class SQLiteAdapter implements StorageAdapter {
     );
     this.bySalienceStmt = db.prepare(
       `SELECT json FROM memories WHERE salience >= ? ORDER BY salience DESC, timestamp DESC`,
+    );
+    this.byUserIdStmt = db.prepare(
+      `SELECT json FROM memories WHERE userId = ? ORDER BY timestamp DESC`,
+    );
+    this.byActorStmt = db.prepare(
+      `SELECT json FROM memories WHERE actor = ? ORDER BY timestamp DESC`,
+    );
+    this.byTargetStmt = db.prepare(
+      `SELECT json FROM memories WHERE target = ? ORDER BY timestamp DESC`,
     );
     this.childrenStmt = db.prepare(
       `SELECT json FROM memories WHERE parentId = ? ORDER BY timestamp DESC`,
@@ -84,10 +98,22 @@ export class SQLiteAdapter implements StorageAdapter {
       salience REAL NOT NULL,
       level TEXT NOT NULL,
       parentId TEXT,
-      agentRole TEXT
+      agentRole TEXT,
+      userId TEXT,
+      actor TEXT,
+      target TEXT
     )`,
       )
       .run();
+
+    // Idempotent column adds for in-place upgrades from older schemas.
+    for (const col of ["userId", "actor", "target"]) {
+      try {
+        this.db.prepare(`ALTER TABLE memories ADD COLUMN ${col} TEXT`).run();
+      } catch {
+        // Column already exists — ignore.
+      }
+    }
 
     this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_timestamp ON memories(timestamp)`).run();
     this.db
@@ -96,6 +122,9 @@ export class SQLiteAdapter implements StorageAdapter {
     this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_level ON memories(level)`).run();
     this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_parent ON memories(parentId)`).run();
     this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_agent ON memories(agentRole)`).run();
+    this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user ON memories(userId)`).run();
+    this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_actor ON memories(actor)`).run();
+    this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_target ON memories(target)`).run();
 
     this.db
       .prepare(
@@ -118,9 +147,12 @@ export class SQLiteAdapter implements StorageAdapter {
       json,
       timestamp: node.timestamp,
       salience: node.payload.salienceScore,
-      level: node.hierarchy.level,
-      parentId: node.hierarchy.parentId ?? null,
+      level: node.level,
+      parentId: node.parentId ?? null,
       agentRole: node.meta.agentRole,
+      userId: node.userId ?? null,
+      actor: node.actor ?? null,
+      target: node.target ?? null,
     });
     this.syncTags(node);
     return Promise.resolve();
@@ -143,28 +175,34 @@ export class SQLiteAdapter implements StorageAdapter {
   }
 
   queryByTimeRange(start: number, end: number, opts?: QueryOpts): Promise<MemoryNode[]> {
-    const rows = this.byTimeRangeStmt.all([start, end]) as Array<{
-      json: string;
-    }>;
-    const nodes = rows.map((r) => this.parse(r.json));
-    return Promise.resolve(this.applyOpts(nodes, opts));
+    const rows = this.byTimeRangeStmt.all([start, end]) as Array<{ json: string }>;
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
   }
 
   queryByTags(tags: string[], opts?: QueryOpts): Promise<MemoryNode[]> {
     const jsonTags = JSON.stringify(tags);
-    const rows = this.byTagsStmt.all([jsonTags, tags.length]) as Array<{
-      json: string;
-    }>;
-    const nodes = rows.map((r) => this.parse(r.json));
-    return Promise.resolve(this.applyOpts(nodes, opts));
+    const rows = this.byTagsStmt.all([jsonTags, tags.length]) as Array<{ json: string }>;
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
   }
 
   queryBySalience(minScore: number, opts?: QueryOpts): Promise<MemoryNode[]> {
-    const rows = this.bySalienceStmt.all([minScore]) as Array<{
-      json: string;
-    }>;
-    const nodes = rows.map((r) => this.parse(r.json));
-    return Promise.resolve(this.applyOpts(nodes, opts));
+    const rows = this.bySalienceStmt.all([minScore]) as Array<{ json: string }>;
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+  }
+
+  queryByUserId(userId: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    const rows = this.byUserIdStmt.all([userId]) as Array<{ json: string }>;
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+  }
+
+  queryByActor(actor: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    const rows = this.byActorStmt.all([actor]) as Array<{ json: string }>;
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+  }
+
+  queryByTarget(target: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    const rows = this.byTargetStmt.all([target]) as Array<{ json: string }>;
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
   }
 
   getChildren(parentId: string): Promise<MemoryNode[]> {
@@ -179,8 +217,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
   listAll(opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.listAllStmt.all() as Array<{ json: string }>;
-    const nodes = rows.map((r) => this.parse(r.json));
-    return Promise.resolve(this.applyOpts(nodes, opts));
+    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
   }
 
   close(): Promise<void> {
@@ -207,7 +244,7 @@ export class SQLiteAdapter implements StorageAdapter {
     let results = nodes;
 
     if (opts?.level) {
-      results = results.filter((n) => n.hierarchy.level === opts.level);
+      results = results.filter((n) => n.level === opts.level);
     }
 
     if (opts?.orderBy) {

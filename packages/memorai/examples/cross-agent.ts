@@ -101,7 +101,7 @@ async function scenario() {
     topK: 5,
   });
   console.log("\n[Proactive] Triggers found:");
-  triggers.nodes.forEach((n) => console.log(`  - ${n.payload.summary} (${n.hierarchy.level})`));
+  triggers.nodes.forEach((n) => console.log(`  - ${n.payload.summary} (${n.level})`));
 
   // Reasoning agent queries: what's the overall picture?
   const picture = await reasoningAgent.retrieve({
@@ -110,17 +110,17 @@ async function scenario() {
     topK: 5,
   });
   console.log("\n[Reasoning] Big picture:");
-  picture.nodes.forEach((n) => console.log(`  - ${n.payload.summary} (${n.hierarchy.level})`));
+  picture.nodes.forEach((n) => console.log(`  - ${n.payload.summary} (${n.level})`));
 
   // Both agents see the same data but at different granularity
   console.log("\nShared storage has:");
   const all = await sharedStorage.listAll();
   console.log(`  ${all.length} total nodes`);
-  console.log(`  ${all.filter((n) => n.hierarchy.level === "segment").length} segments`);
+  console.log(`  ${all.filter((n) => n.level === "segment").length} segments`);
   console.log(
-    `  ${all.filter((n) => n.hierarchy.level === "atomic_action").length} atomic actions`,
+    `  ${all.filter((n) => n.level === "atomic_action").length} atomic actions`,
   );
-  console.log(`  ${all.filter((n) => n.hierarchy.level === "event").length} events`);
+  console.log(`  ${all.filter((n) => n.level === "event").length} events`);
 
   await reasoningAgent.close();
   await proactiveAgent.close();

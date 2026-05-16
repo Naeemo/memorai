@@ -23,7 +23,7 @@ const memory = new Memorai({
   storage,
   embedding,
   evolution: {
-    autoEvolveIntervalMs: 5 * 60 * 1000, // evolve every 5 minutes
+    autoTriggers: { intervalMs: 5 * 60 * 1000 }, // background evolve every 5 minutes
   },
 });
 
@@ -81,7 +81,7 @@ const server = createServer(async (req, res) => {
         events: result.nodes.map((n) => ({
           time: new Date(n.timestamp).toISOString(),
           summary: n.payload.summary,
-          level: n.hierarchy.level,
+          level: n.level,
         })),
       });
     }
