@@ -1,0 +1,6 @@
+datasets/
+results/*.json
+results/*.md
+!results/.gitkeep
+!results/published/
+!results/published/**

@@ -1,0 +1,31 @@
+{
+  "name": "@memorai/benchmarks",
+  "version": "0.0.0",
+  "description": "Benchmark harness for Memorai against public agent-memory datasets (LoCoMo, LongMemEval, ConvoMem) and custom synthetic tests",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "vp test",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
+    "lint:fix": "vp lint --fix",
+    "typecheck": "tsc --noEmit",
+    "bench": "tsx src/cli/index.ts",
+    "bench:fetch": "tsx src/cli/fetch.ts",
+    "bench:custom": "tsx src/cli/index.ts custom",
+    "bench:locomo": "tsx src/cli/index.ts locomo",
+    "bench:longmemeval": "tsx src/cli/index.ts longmemeval",
+    "bench:all": "tsx src/cli/index.ts all"
+  },
+  "dependencies": {
+    "memorai": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite-plus": "^0.1.21",
+    "vitest": "^3.2.4"
+  }
+}
