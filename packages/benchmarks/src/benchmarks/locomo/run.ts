@@ -11,15 +11,14 @@ export interface LoCoMoRunOptions
   categories?: string[];
 }
 
-export async function runLoCoMo(
-  opts: LoCoMoRunOptions,
-): Promise<RunResult> {
+export async function runLoCoMo(opts: LoCoMoRunOptions): Promise<RunResult> {
   const conversations = await loadLoCoMo(opts.datasetPath);
   const slice = opts.limit ? conversations.slice(0, opts.limit) : conversations;
+  // Spread opts FIRST so explicit per-call values override defaults below.
   return runSuite({
+    ...opts,
     suite: "locomo",
     conversations: slice,
     categories: opts.categories ?? DEFAULT_CATEGORIES,
-    ...opts,
   });
 }

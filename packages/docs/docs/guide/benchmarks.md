@@ -119,7 +119,24 @@ The runner writes `results/<suite>-<provider>-<timestamp>.{json,md}` after each 
 
 0.3.0 splits `MemoryNode` into immutable Tier 1 `raw` and regenerable Tier 2 `annotations`. Tier 3 indexes (BM25 / vector / tag / time) rebuild automatically from both. The new `Memorai.reAnnotate()` regenerates Tier 2 + Tier 3 over the existing store from the immutable Tier 1 — letting you upgrade the extractor or switch embedding models without losing the source timeline.
 
-Indexing now uses `composeIndexableText(raw, annotations)` (raw text + summary + facts + tags, deduplicated) instead of just the summary. The richer signal subtly changes per-query embedding ordering.
+Indexing now uses `composeIndexableText(raw, annotations)` (raw text + summary + facts + tags, deduplicated) instead of just the summary.
+
+#### LoCoMo — full conv-26 (152 QAs, default category filter)
+
+The publishable comparison: same conv, same QAs, two extractor strategies.
+
+| Configuration | Accuracy | multi_hop | single_hop | temporal | open_domain | Ingest time |
+|---------------|---------:|----------:|-----------:|---------:|------------:|------------:|
+| `--extractor wrap` | 21.71% (33/152) | 23.1% (3/13) | 12.5% (4/32) | 2.7% (1/37) | 35.7% (25/70) | 7.1 min |
+| `--extractor llm --extractor-model gemma4:31b-cloud` | **23.03%** (35/152) | **38.5%** (5/13) | 15.6% (5/32) | 5.4% (2/37) | 32.9% (23/70) | 51.0 min |
+
+**LLM extraction adds ~1.3pp overall, concentrated in `multi_hop` (+15.4pp).** That category is where canonical fact extraction matters most — wrap mode stores raw conversation turns and can't easily stitch a fact across multiple sessions, LLM extraction produces summaries / triples that retrieval can hit directly. Open-domain and single-hop are flat-ish (LLM paraphrase moves further from the literal query text, partially cancelling out). Temporal is still terrible (2.7% → 5.4%) — extraction quality doesn't fix timestamp reasoning, that's a separate retrieval/answer problem.
+
+For context: mem0 reports 25–45% for RAG-only LoCoMo and 65–70% for their full LLM-extraction pipeline. We sit at the bottom edge of their RAG range with `--extractor llm`. The gap to 65–70% is in **(a)** model strength (gemma4:31b-cloud vs OpenAI for the answerer), **(b)** prompt engineering of the extractor, and **(c)** running across all 10 conversations (we ran only conv-26 — 1986 QAs across 10 is the published comparison shape).
+
+#### Bug fix surfaced by these runs
+
+The full-conv-26 runs above tripped a pre-existing bug: the `--categories` default in `packages/benchmarks/src/benchmarks/locomo/run.ts` was being clobbered by a trailing `...opts` spread, so adversarial QAs (category 5) were being included against the default filter. Fixed in this PR — runner now spreads opts first, then applies defaults. Smoke runs with `--limit-qas 30` weren't affected (conv-26's first 30 QAs happen to all fall into default categories).
 
 #### Custom suite — `published/custom-0.3.0.md`
 
@@ -127,27 +144,12 @@ Aggregate **95.5%** (vs **97.5%** on 0.2.0).
 
 | Benchmark | 0.2.0 | 0.3.0 | Notes |
 |-----------|-------|-------|-------|
-| Needle-in-a-Haystack | 100% | 95.5% | one n=100 trial below the 0.72 similarity threshold (sim=0.589) — found at rank 1 but penalized |
-| Multi-Needle Retrieval | 100% | 88.9% | one needles=3 trial at recall 0.67 — synthetic-test stochasticity |
-| Hierarchical Evolution Preservation | 100% | 100% | — |
-| Temporal Retrieval | 100% | 100% | — |
-| Scalability | 100% | 100% | — |
-| Cross-Agent Isolation | 100% | 100% | — |
+| Needle-in-a-Haystack | 100% | 95.5% | one n=100 trial below 0.72 similarity threshold (sim=0.589) |
+| Multi-Needle Retrieval | 100% | 88.9% | one needles=3 trial at recall 0.67 |
+| Evolution / Temporal / Scalability / CrossAgent / TimeWindow | 100% | 100% | — |
 | Multimodal Recall | 80% | 80% | — |
-| Time-Window Recall | 100% | 100% | — |
 
 The drift on the two synthetic-needle tests is single-trial noise (random distractor mix + nomic-embed-text batching nondeterminism); the other six tests are flat.
-
-#### LoCoMo — wrap mode, conv-26, 30 QAs
-
-| Configuration | Accuracy | Notes |
-|---------------|---------|-------|
-| 0.2.0 (RRF + BM25, no rerank) | 13.33% (4/30) | multi_hop 0% / single_hop 20% / temporal 12.5% |
-| 0.2.0 + `--reranker llm` | 13.33% (4/30) | multi_hop 25% / single_hop 20% / temporal 6.3% — rerank shifts distribution |
-| **0.3.0 (RRF + BM25, no rerank)** | **13.33% (4/30)** | multi_hop 25% / single_hop 20% / temporal 6.3% — composed embedding produces the rerank distribution at zero LLM cost |
-| 0.3.0 + `--reranker llm` | 13.33% (4/30) | identical distribution to 0.3.0 RRF; +68s wall clock for no accuracy gain |
-
-The interesting finding: **0.3.0's composed embedding (raw + summary + facts + tags) produces the same category redistribution that needed `--reranker llm` on 0.2.0** — for free, at retrieval time, with no LLM call. The LLM rerank on 0.3.0 becomes a no-op on this 30q sample.
 
 #### LongMemEval oracle — 20 questions
 
@@ -156,7 +158,7 @@ The interesting finding: **0.3.0's composed embedding (raw + summary + facts + t
 | 0.2.0 | 60% (12/20) | 77s |
 | **0.3.0** | **60% (12/20)** | **85s** |
 
-Same accuracy. ~10% latency overhead from the richer composed embedding (more text to embed per ingest); within noise.
+Oracle split is pre-filtered — measures the downstream pipeline (Event ingest → recall → answerer → judge) on curated context, not retrieval quality.
 
 ### 2026-05-17 — Memorai 0.2.0 (multi-pathway retrieval)
 
