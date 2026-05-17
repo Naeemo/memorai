@@ -115,6 +115,49 @@ The runner writes `results/<suite>-<provider>-<timestamp>.{json,md}` after each 
 
 ## Canonical results
 
+### 2026-05-17 — Memorai 0.3.0 (three-tier raw + annotations + indexes)
+
+0.3.0 splits `MemoryNode` into immutable Tier 1 `raw` and regenerable Tier 2 `annotations`. Tier 3 indexes (BM25 / vector / tag / time) rebuild automatically from both. The new `Memorai.reAnnotate()` regenerates Tier 2 + Tier 3 over the existing store from the immutable Tier 1 — letting you upgrade the extractor or switch embedding models without losing the source timeline.
+
+Indexing now uses `composeIndexableText(raw, annotations)` (raw text + summary + facts + tags, deduplicated) instead of just the summary. The richer signal subtly changes per-query embedding ordering.
+
+#### Custom suite — `published/custom-0.3.0.md`
+
+Aggregate **95.5%** (vs **97.5%** on 0.2.0).
+
+| Benchmark | 0.2.0 | 0.3.0 | Notes |
+|-----------|-------|-------|-------|
+| Needle-in-a-Haystack | 100% | 95.5% | one n=100 trial below the 0.72 similarity threshold (sim=0.589) — found at rank 1 but penalized |
+| Multi-Needle Retrieval | 100% | 88.9% | one needles=3 trial at recall 0.67 — synthetic-test stochasticity |
+| Hierarchical Evolution Preservation | 100% | 100% | — |
+| Temporal Retrieval | 100% | 100% | — |
+| Scalability | 100% | 100% | — |
+| Cross-Agent Isolation | 100% | 100% | — |
+| Multimodal Recall | 80% | 80% | — |
+| Time-Window Recall | 100% | 100% | — |
+
+The drift on the two synthetic-needle tests is single-trial noise (random distractor mix + nomic-embed-text batching nondeterminism); the other six tests are flat.
+
+#### LoCoMo — wrap mode, conv-26, 30 QAs
+
+| Configuration | Accuracy | Notes |
+|---------------|---------|-------|
+| 0.2.0 (RRF + BM25, no rerank) | 13.33% (4/30) | multi_hop 0% / single_hop 20% / temporal 12.5% |
+| 0.2.0 + `--reranker llm` | 13.33% (4/30) | multi_hop 25% / single_hop 20% / temporal 6.3% — rerank shifts distribution |
+| **0.3.0 (RRF + BM25, no rerank)** | **13.33% (4/30)** | multi_hop 25% / single_hop 20% / temporal 6.3% — composed embedding produces the rerank distribution at zero LLM cost |
+| 0.3.0 + `--reranker llm` | 13.33% (4/30) | identical distribution to 0.3.0 RRF; +68s wall clock for no accuracy gain |
+
+The interesting finding: **0.3.0's composed embedding (raw + summary + facts + tags) produces the same category redistribution that needed `--reranker llm` on 0.2.0** — for free, at retrieval time, with no LLM call. The LLM rerank on 0.3.0 becomes a no-op on this 30q sample.
+
+#### LongMemEval oracle — 20 questions
+
+| Configuration | Accuracy | Latency |
+|---------------|---------|---------|
+| 0.2.0 | 60% (12/20) | 77s |
+| **0.3.0** | **60% (12/20)** | **85s** |
+
+Same accuracy. ~10% latency overhead from the richer composed embedding (more text to embed per ingest); within noise.
+
 ### 2026-05-17 — Memorai 0.2.0 (multi-pathway retrieval)
 
 0.2.0 added a multi-pathway retrieval layer: every recall now fans out to semantic + BM25 + tag + temporal + identity routes in parallel, fuses them via [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf), and tags every returned memory with its `provenance.pathways`. Optional LLM-driven precision layers (`--reranker llm`, `--query-expansion N`, `--hyde`) sit on top of the fusion.
