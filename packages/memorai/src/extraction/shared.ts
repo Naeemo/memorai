@@ -2,7 +2,9 @@ import type {
   Event,
   EventContent,
   MediaPayload,
-  MemoryPayloadInput,
+  MemoryAnnotationsInput,
+  Modality,
+  RawContent,
   WritePayload,
 } from "../types.js";
 
@@ -29,71 +31,134 @@ function toMs(t: number | Date): number {
 }
 
 /**
- * Convert `EventContent` into the textual + media parts of a MemoryPayload.
- * Used by extractors as a common building block — the textual `summary`
- * may be further refined (e.g. by an LLM) downstream.
+ * Project `EventContent` into the textual + media + modality parts that get
+ * stored in the Tier 1 `raw` field. Returns:
+ *   - `text`:    flat textual projection for indexing (optional for binary-only events)
+ *   - `media`:   multimodal references
+ *   - `modality`: which modalities are present
+ *   - `descriptionText`: a richer secondary description, only when the event
+ *                       carries one (file contents, custom-payload JSON)
+ *
+ * This is purely a *flattening* of the original content — no extraction,
+ * no summarization. The `content` itself stays untouched in `raw.content`.
  */
-export function contentToTextAndMedia(content: EventContent): {
-  summary: string;
-  description?: string;
+export function projectContent(content: EventContent): {
+  text?: string;
   media?: MediaPayload;
-  modality: MemoryPayloadInput["modality"];
+  modality: Modality[];
+  descriptionText?: string;
 } {
   switch (content.kind) {
     case "message":
-      return { summary: content.text, modality: ["text"] };
+      return { text: content.text, modality: ["text"] };
     case "speech": {
-      const media = content.audio
-        ? ({ audio: content.audio } satisfies MediaPayload)
-        : undefined;
+      const media = content.audio ? ({ audio: content.audio } satisfies MediaPayload) : undefined;
       return {
-        summary: content.text,
+        text: content.text,
         media,
         modality: media ? ["audio", "text"] : ["text"],
       };
     }
     case "image": {
-      const summary = content.caption ?? "[image]";
       const media: MediaPayload = { frames: [content.image] };
-      return { summary, media, modality: ["vision"] };
+      return {
+        text: content.caption,
+        media,
+        modality: ["vision"],
+      };
     }
     case "audio": {
-      const summary = content.transcript ?? "[audio]";
       const media: MediaPayload = { audio: content.audio };
-      return { summary, media, modality: content.transcript ? ["audio", "text"] : ["audio"] };
+      return {
+        text: content.transcript,
+        media,
+        modality: content.transcript ? ["audio", "text"] : ["audio"],
+      };
     }
     case "video": {
-      const summary = content.transcript ?? "[video]";
       const media: MediaPayload = {
         video: content.video,
         frames: content.frames,
       };
       return {
-        summary,
+        text: content.transcript,
         media,
         modality: ["vision", content.transcript ? "text" : "audio"],
       };
     }
     case "file":
       return {
-        summary: content.text ?? `[file ${content.mime}]`,
-        description: content.text ? `file ref=${content.ref}` : undefined,
+        text: content.text,
         modality: ["text"],
+        descriptionText: content.text ? `file ref=${content.ref}` : undefined,
       };
     case "observation":
-      return { summary: content.text, modality: ["text"] };
+      return { text: content.text, modality: ["text"] };
     case "custom":
       return {
-        summary: content.text,
-        description: content.data ? JSON.stringify(content.data) : undefined,
+        text: content.text,
+        descriptionText: content.data ? JSON.stringify(content.data) : undefined,
         modality: ["text"],
       };
   }
 }
 
 /**
- * Build a `WritePayload` skeleton from an Event. Extractors then enrich
- * the payload with tags, salience, and (optionally) embeddings.
+ * Best-effort flattening of `RawContent` to a single indexable string.
+ * Used by storage adapters' BM25 indexing and by `Memorai.write()` to
+ * compute embeddings.
+ */
+export function rawIndexableText(raw: RawContent): string {
+  if (raw.text) return raw.text;
+  // Fall back to a placeholder so the node is still findable by other paths.
+  switch (raw.content.kind) {
+    case "image":
+      return raw.content.caption ?? "[image]";
+    case "audio":
+      return raw.content.transcript ?? "[audio]";
+    case "video":
+      return raw.content.transcript ?? "[video]";
+    case "file":
+      return `[file ${raw.content.mime}]`;
+    default:
+      return "";
+  }
+}
+
+/**
+ * Combine the Tier 1 raw text with the Tier 2 derived text (summary, facts,
+ * description, tags) into a single indexable string for BM25 + embedding.
+ *
+ * Retrieval becomes Tier-1-and-Tier-2 simultaneously: BM25 hits literal
+ * tokens from the original event AND canonicalised phrasings, and the
+ * embedding sits in a semantic space that covers both.
+ */
+export function composeIndexableText(
+  raw: RawContent,
+  annotations?: MemoryAnnotationsInput,
+): string {
+  const parts: string[] = [];
+  const rawText = rawIndexableText(raw);
+  if (rawText) parts.push(rawText);
+  if (annotations) {
+    if (annotations.summary) parts.push(annotations.summary);
+    if (annotations.facts) parts.push(...annotations.facts);
+    if (annotations.description) parts.push(annotations.description);
+    if (annotations.tags && annotations.tags.length > 0) {
+      parts.push(annotations.tags.join(" "));
+    }
+  }
+  // Dedup repeated lines.
+  return [...new Set(parts.map((p) => p.trim()).filter(Boolean))].join(" — ");
+}
+
+/**
+ * Build a `WritePayload` skeleton from an Event. Returns:
+ *   - Tier 1: `raw` carrying the original content + flat text + media refs
+ *   - Tier 2: `annotations` pre-populated with tags / salience / modality
+ *
+ * Subclassing extractors can call this, then enrich `annotations` further
+ * (e.g. with LLM-generated `summary` / `facts` / `triples`).
  */
 export function buildBaseWrite(
   event: Event,
@@ -101,9 +166,7 @@ export function buildBaseWrite(
   extras: { tags?: string[]; salienceScore?: number } = {},
 ): WritePayload {
   const { timestamp, duration } = resolveTimeAnchor(event, now);
-  const { summary, description, media, modality } = contentToTextAndMedia(
-    event.content,
-  );
+  const projection = projectContent(event.content);
 
   const tagSet = new Set<string>();
   if (event.actor) tagSet.add(event.actor);
@@ -111,17 +174,24 @@ export function buildBaseWrite(
   if (event.tags) for (const t of event.tags) tagSet.add(t);
   if (extras.tags) for (const t of extras.tags) tagSet.add(t);
 
+  const raw: RawContent = {
+    content: event.content,
+    text: projection.text,
+    media: projection.media,
+  };
+
+  const annotations: MemoryAnnotationsInput = {
+    tags: [...tagSet],
+    salienceScore: extras.salienceScore ?? event.salienceHint ?? 0.5,
+    modality: projection.modality,
+    description: projection.descriptionText,
+  };
+
   return {
     timestamp,
     duration,
-    payload: {
-      summary,
-      description,
-      media,
-      modality,
-      tags: [...tagSet],
-      salienceScore: extras.salienceScore ?? event.salienceHint ?? 0.5,
-    },
+    raw,
+    annotations,
     actor: event.actor,
     target: event.target,
     userId: event.userId,
@@ -130,5 +200,24 @@ export function buildBaseWrite(
       writeContext: event.context,
       participants: event.participants,
     },
+  };
+}
+
+/**
+ * @deprecated Use `projectContent` / `rawIndexableText` directly. Kept for
+ * back-compat with extractors that still call `contentToTextAndMedia`.
+ */
+export function contentToTextAndMedia(content: EventContent): {
+  summary: string;
+  description?: string;
+  media?: MediaPayload;
+  modality: Modality[];
+} {
+  const p = projectContent(content);
+  return {
+    summary: p.text ?? rawIndexableText({ content }),
+    description: p.descriptionText,
+    media: p.media,
+    modality: p.modality,
   };
 }

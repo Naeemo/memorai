@@ -1,7 +1,7 @@
 # Memorai Architecture
 
-> **Version:** 0.1.0
-> **Date:** 2026-05-16
+> **Version:** 0.3.0
+> **Date:** 2026-05-17
 > **Based on:** StreamingClaw StreamingMemory (arXiv:2603.22120v2) + mem0/Letta lessons + production benchmark feedback
 > **Goal:** A runtime-agnostic, multimodal **event-based** memory layer for AI agents — an "efficient memory that never forgets".
 
@@ -64,6 +64,71 @@ Memorai exposes three interface layers, ordered by abstraction:
 ```
 
 **Why three layers**: Earlier versions of Memorai exposed `write(WritePayload)` directly to callers, forcing them to produce `{ summary, tags, salienceScore, modality }` themselves. That bled internal extraction concerns into every integration. The Event API restores the natural shape callers actually have ("Alice sent Bob a message at 14:32"), and Memorai owns the conversion to structured memory. The internal Memory API is preserved as a power-user / library-author escape hatch.
+
+### 1.4 Three-Tier Storage Philosophy (the core principle)
+
+Every memory in Memorai is organized in three tiers, **bottom-up**. This mirrors how humans build understanding from experience — you remember what you saw and heard first, then interpret it over time, and only later derive abstract structures from those interpretations.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Tier 3: Indexes (computed, re-buildable)                         │
+│    - Embedding vectors                                            │
+│    - BM25 inverted indexes                                        │
+│    - Knowledge-triple graphs                                      │
+│    - Tag / actor / target / userId reverse indexes                │
+│    - Any future indexable form                                    │
+│  Re-buildable from Tier 1+2 at any time.                          │
+└──────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ derived (queryable shape)
+                              │
+┌──────────────────────────────────────────────────────────────────┐
+│  Tier 2: Annotations (evolving, can be re-extracted)              │
+│    - LLM-extracted canonical fact form                            │
+│    - Multiple paraphrased fact variants                           │
+│    - Tags / entities / topics                                     │
+│    - Salience score                                               │
+│    - Knowledge triples (subject, predicate, object)               │
+│    - Sentiment, topics, embeddings, …                             │
+│    - Open extension: any future annotation type                   │
+│  Re-extractable from Tier 1 when a better extractor appears.      │
+└──────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ derived (interpretation)
+                              │
+┌──────────────────────────────────────────────────────────────────┐
+│  Tier 1: Raw timeline (immutable, append-only, canonical truth)   │
+│    - Original Event payload, byte-for-byte                        │
+│    - Time anchor (timestamp + optional duration)                  │
+│    - Actor / target / userId (relational anchors)                 │
+│    - Multimodal references (image / audio / video / file)         │
+│  Never modified. Never overwritten by an extractor. Forever.      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Three invariants**:
+
+1. **Tier 1 is append-only.** Once written, raw events are immutable. No extractor, no evolution step, no upgrade ever mutates them. This is the "永不忘记" promise — even when the rest of the system changes, what was actually observed stays intact.
+
+2. **Tier 2 is regenerable.** Annotations are *one interpretation* of the raw event — useful, but not authoritative. When a better LLM, a smarter prompt, or a different extraction technique appears, Memorai can re-run extraction over the existing Tier 1 and replace Tier 2. This is what `Memorai.reAnnotate()` does.
+
+3. **Tier 3 is disposable.** Indexes are computed artifacts. They can be dropped and rebuilt at any time from Tier 1+2. Different storage backends maintain different index shapes; the canonical state lives below.
+
+**Three consequences that other memory libraries can't match**:
+
+- **"Upgrade the model, re-index everything for free."** Mem0/Zep destructively summarize at ingest time — they keep only Tier 2. When their extraction quality improves, old memories don't benefit. Memorai re-runs extraction over Tier 1 and the entire history is upgraded.
+- **"Multiple interpretations coexist."** The same raw event can carry a factual summary AND a narrative form AND a sentiment annotation AND a triple set, indexed in parallel. Recall pathways pick whichever interpretation matches the question.
+- **"Provenance traces back to the source."** Every recalled memory cites its raw form. Users see both "the system thinks you said X" (annotation) and "the original was Y" (raw). Trust is grounded in the verifiable bottom layer.
+
+**Mapping to the type system** (see §3 and §4 for the full schemas):
+
+| Tier | Concrete fields |
+|------|-----------------|
+| 1 | `MemoryNode.raw: { content, text?, media? }`, `timestamp`, `duration`, `actor`, `target`, `userId`, `meta.sourceAgent`, `meta.participants`, `meta.eventId` |
+| 2 | `MemoryNode.annotations: { summary?, facts?, description?, tags, salienceScore, modality, embedding?, triples? }`, `annotatedAt?`, `annotationVersion?` |
+| 3 | Storage-adapter-internal: BM25 inverted index, embedding vector store, userId/actor/target maps, knowledge graph store |
+
+Extractors write Tier 1 + Tier 2 in a single `WritePayload`. The `WrapExtractor` writes only Tier 1 (no annotation). The `LightExtractor` adds heuristic Tier 2. The `LLMExtractor` adds LLM-grade Tier 2 + (optionally) triples. The Tier 3 indexes are maintained automatically by `StorageAdapter.put()`.
 
 ---
 

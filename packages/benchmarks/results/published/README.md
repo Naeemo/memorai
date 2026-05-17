@@ -2,6 +2,53 @@
 
 This directory contains the canonical benchmark runs committed alongside Memorai's published versions. Day-to-day runs land in the parent `results/` directory (gitignored); only runs we want to cite go here.
 
+## 2026-05-17 — Memorai 0.3.0 (three-tier raw + annotations + indexes)
+
+0.3.0 splits `MemoryNode` into immutable Tier 1 `raw` (the canonical timeline) and regenerable Tier 2 `annotations`. Tier 3 indexes (BM25 / vector / tag / time) are rebuilt automatically from both tiers by the storage adapter. The new `Memorai.reAnnotate()` method regenerates Tier 2 + Tier 3 over the existing store from the immutable Tier 1 — letting you upgrade the extractor or switch embedding models without losing the source timeline.
+
+Indexing now uses `composeIndexableText(raw, annotations)` (raw text + summary + facts + tags, deduplicated) instead of just the summary. This is what changes the retrieval behavior at the per-query level.
+
+### Headline (full conv-26, 152 QAs, default filter)
+
+| Run | Accuracy | multi_hop | single_hop | temporal | open_domain | Ingest time |
+|-----|---------:|----------:|-----------:|---------:|------------:|------------:|
+| [`locomo-wrap-conv26-full-0.3.0.md`](./locomo-wrap-conv26-full-0.3.0.md) — `--extractor wrap` | **21.71%** (33/152) | 23.1% (3/13) | 12.5% (4/32) | 2.7% (1/37) | 35.7% (25/70) | 7.1 min |
+| [`locomo-llm-conv26-full-0.3.0.md`](./locomo-llm-conv26-full-0.3.0.md) — `--extractor llm --extractor-model gemma4:31b-cloud` | **23.03%** (35/152) | **38.5%** (5/13) | 15.6% (5/32) | 5.4% (2/37) | 32.9% (23/70) | 51.0 min |
+
+**The LLM extractor adds ~1.3pp overall, concentrated in `multi_hop` (+15.4pp).** Open-domain is essentially flat (and slightly *lower* with LLM — the canonical paraphrase moves further from the literal query text). Temporal stays terrible (timestamp reasoning is a separate problem from extraction quality). The 7x ingest cost is real and the headline isn't a magic bullet — but the multi-hop lift is a clean signal that LLM-extracted facts do enable cross-session reasoning that wrap mode literally cannot do.
+
+For reference, mem0's published LoCoMo numbers are 25–45% for RAG-only configurations and 65–70% for their full LLM-extraction pipeline. We sit at the lower edge of their RAG range with `--extractor llm`. The gap to 65–70% is in **(a)** model strength (gemma4:31b-cloud vs OpenAI for the answerer), **(b)** prompt engineering of the extractor, and **(c)** running across all 10 conversations (we only ran conv-26 — 1986 QAs across 10 is the published comparison shape).
+
+### Smoke runs (first 30 QAs only)
+
+| File | Configuration | Headline |
+|------|---------------|----------|
+| [`custom-0.3.0.md`](./custom-0.3.0.md) | 8-test custom synthetic suite | 95.5% aggregate (vs 97.5% on 0.2.0). Drift is two stochastic Needle/Multi-Needle trials; six tests still 100%. |
+| [`locomo-wrap-30q-rrf-0.3.0.md`](./locomo-wrap-30q-rrf-0.3.0.md) | LoCoMo conv-26, first 30 QAs, `--extractor wrap --reranker none` | 13.33% (4/30) — first 30 QAs happen to be 30/30 in default categories (no adversarial), so this number is valid. Comparable to the 0.2.0 baseline of 4/30. |
+| [`locomo-wrap-30q-rerank-0.3.0.md`](./locomo-wrap-30q-rerank-0.3.0.md) | Same + `--reranker llm` | 13.33% (4/30). LLM rerank no-op at N=30. |
+| [`longmemeval-oracle-20q-rrf-0.3.0.md`](./longmemeval-oracle-20q-rrf-0.3.0.md) | LongMemEval oracle, first 20 q | 60% (12/20) — matches 0.2.0. Oracle split measures the downstream pipeline only. |
+
+### Bug fix — category filter
+
+The full-conv-26 runs above surfaced a pre-existing bug in `packages/benchmarks/src/benchmarks/locomo/run.ts`: the `--categories` default (`["single_hop", "temporal", "multi_hop", "open_domain"]`, i.e. exclude adversarial) was being clobbered by a trailing `...opts` spread that restored `undefined`. Smoke runs slicing the first 30 QAs were not affected because conv-26's first 30 happen to all fall into default categories. Full-conv runs *do* trip on it. Fixed in this PR — runner now spreads opts first, then applies defaults.
+
+### Configuration used
+
+- Memorai 0.3.0 (three-tier storage)
+- Embedder: `nomic-embed-text` via Ollama (768-d)
+- Extractor LLM (when `--extractor llm`): `gemma4:31b-cloud` (Google Gemma 31B, hosted)
+- Answerer LLM: `gemma4:31b-cloud`
+- Judge LLM: `qwen3-coder-next:cloud` (Alibaba Qwen 80B — different family from answerer)
+- Top-K: 30
+- Storage: in-memory `MemoryAdapter` (per-conversation isolated)
+- Evolution: `mode: "manual"` with `evolve()` after each session
+
+### Caveats
+
+- All runs are on conv-26 only (1 of 10 LoCoMo conversations). Cross-conv aggregate is the publishable comparison shape and not yet run.
+- Single-run numbers, no `mean ± stddev` over multiple seeds. LLM judges are non-deterministic at temp=0.
+- `--extractor llm` ran a 31B model for 419 ingest calls + 199 retrieval/answer/judge cycles in 51 minutes. Smaller extractor models would be faster but lose extraction quality; this is the speed/quality trade-off the published number sits at.
+
 ## 2026-05-17 — Memorai 0.2.0 (multi-pathway retrieval)
 
 The big change in 0.2.0 is the **multi-pathway retrieval layer**: every recall now runs semantic + BM25 + tag + temporal + identity (userId/actor/target) routes in parallel, fuses them via Reciprocal Rank Fusion, and tags every returned memory with the routes that surfaced it (`provenance.pathways`). Optional precision layers — LLM reranker, query expansion, and HyDE — sit on top of the fusion.

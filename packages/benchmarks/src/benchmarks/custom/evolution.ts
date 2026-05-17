@@ -51,9 +51,13 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
     });
     baselineLatencies.push(performance.now() - start);
 
-    const needleEmb = await ollamaEmbed(needle.payload.summary);
+    const needleEmb = await ollamaEmbed(
+      needle.annotations?.summary ?? needle.raw.text ?? "",
+    );
     const retrievedEmb = await Promise.all(
-      result.nodes.map((n) => ollamaEmbed(n.payload.summary)),
+      result.nodes.map((n) =>
+        ollamaEmbed(n.annotations.summary ?? n.raw.text ?? ""),
+      ),
     );
     const { found, similarity } = needleInTopK(
       needleEmb,
@@ -81,9 +85,13 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
     });
     evolvedLatencies.push(performance.now() - start);
 
-    const needleEmb = await ollamaEmbed(needle.payload.summary);
+    const needleEmb = await ollamaEmbed(
+      needle.annotations?.summary ?? needle.raw.text ?? "",
+    );
     const retrievedEmb = await Promise.all(
-      result.nodes.map((n) => ollamaEmbed(n.payload.summary)),
+      result.nodes.map((n) =>
+        ollamaEmbed(n.annotations.summary ?? n.raw.text ?? ""),
+      ),
     );
     const { found, similarity } = needleInTopK(
       needleEmb,

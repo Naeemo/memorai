@@ -22,24 +22,25 @@ const memory = new Memorai({
   embedding: new OpenAIEmbeddingService({ apiKey: 'sk-...' }),
 });
 
-// Write a memory
-const node = await memory.write({
-  payload: {
-    summary: 'User opened VS Code and started editing architecture.md',
-    tags: ['coding', 'vscode'],
-    salienceScore: 0.9,
-    modality: ['text'],
+// Record an event — the primary public API. Returns immediately; extraction
+// runs in the background.
+const handle = memory.recordEvent({
+  at: Date.now(),
+  actor: 'user',
+  content: {
+    kind: 'observation',
+    text: 'User opened VS Code and started editing architecture.md',
   },
+  tags: ['coding', 'vscode'],
 });
+await handle.nodes; // optional — wait for extraction to finish
 
-// Retrieve
-const result = await memory.retrieve({
-  strategy: 'factual',
-  text: 'What was the user working on?',
+// Recall — natural-language question
+const result = await memory.recall('What was the user working on?', {
   topK: 5,
 });
 
-console.log(result.nodes.map((n) => n.payload.summary));
+console.log(result.memories.map((m) => m.summary));
 ```
 
 ## Browser quick start

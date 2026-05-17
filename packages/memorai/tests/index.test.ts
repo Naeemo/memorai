@@ -202,7 +202,11 @@ const makeNode = (
   timestamp: Date.now(),
   duration: 1000,
   level: "segment",
-  payload: {
+  raw: {
+    content: { kind: "observation", text: summary },
+    text: summary,
+  },
+  annotations: {
     summary,
     tags: [],
     salienceScore: 0.5,
@@ -257,13 +261,13 @@ describe("MemoryAdapter", () => {
 
   test("queryByTags", async () => {
     const n1 = makeNode("a", [1, 0, 0, 0], {
-      payload: {
-        ...makeNode("a", [1, 0, 0, 0]).payload,
+      annotations: {
+        ...makeNode("a", [1, 0, 0, 0]).annotations,
         tags: ["coding", "ai"],
       },
     });
     const n2 = makeNode("b", [1, 0, 0, 0], {
-      payload: { ...makeNode("b", [1, 0, 0, 0]).payload, tags: ["cooking"] },
+      annotations: { ...makeNode("b", [1, 0, 0, 0]).annotations, tags: ["cooking"] },
     });
     await adapter.batchPut([n1, n2]);
     const r = await adapter.queryByTags(["coding"]);
@@ -284,7 +288,11 @@ describe("Memorai basics", () => {
 
   test("write + retrieve", async () => {
     await memory.write({
-      payload: {
+      raw: {
+        content: { kind: "observation", text: "gym workout" },
+        text: "gym workout",
+      },
+      annotations: {
         summary: "gym workout",
         tags: ["fitness"],
         salienceScore: 0.7,
@@ -315,7 +323,11 @@ describe("Memorai basics", () => {
 
     await mem.write(
       {
-        payload: {
+        raw: {
+          content: { kind: "observation", text: "morning coding" },
+          text: "morning coding",
+        },
+        annotations: {
           summary: "morning coding",
           embedding: [1, 0, 0, 0],
           tags: ["coding"],
@@ -330,7 +342,11 @@ describe("Memorai basics", () => {
 
     await mem.write(
       {
-        payload: {
+        raw: {
+          content: { kind: "observation", text: "afternoon coding" },
+          text: "afternoon coding",
+        },
+        annotations: {
           summary: "afternoon coding",
           embedding: [1, 0, 0, 0],
           tags: ["coding"],
@@ -355,6 +371,303 @@ describe("Memorai basics", () => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// reAnnotate — Tier 2 regeneration from Tier 1 raw
+// ═══════════════════════════════════════════════════════════
+
+describe("Memorai.reAnnotate", () => {
+  test("rewrites annotations with a new extractor while preserving raw", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+
+    const original = await memory.write({
+      raw: {
+        content: { kind: "observation", text: "deploy completed" },
+        text: "deploy completed",
+      },
+      annotations: {
+        summary: "deploy completed",
+        tags: ["deploy"],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+      annotationVersion: "old-v1",
+    });
+
+    const rewriter: import("memorai").Extractor = {
+      extract: async (event) => {
+        const text = event.content.kind === "observation" ? event.content.text : "";
+        return [
+          {
+            raw: {
+              content: event.content,
+              text,
+            },
+            annotations: {
+              summary: `[upgraded] ${text}`,
+              tags: ["deploy", "upgraded"],
+              salienceScore: 0.9,
+              modality: ["text"],
+            },
+            annotationVersion: "rewriter-v2",
+          },
+        ];
+      },
+    };
+
+    const result = await memory.reAnnotate({
+      extractor: rewriter,
+      filter: (n) => n.level === "segment",
+    });
+
+    expect(result.reannotated).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.errors).toEqual([]);
+
+    const node = await memory.get(original.id);
+    expect(node).not.toBeNull();
+    expect(node!.raw.text).toBe("deploy completed");
+    expect(node!.annotations.summary).toBe("[upgraded] deploy completed");
+    expect(node!.annotations.tags).toContain("upgraded");
+    expect(node!.annotations.salienceScore).toBe(0.9);
+    expect(node!.annotationVersion).toBe("rewriter-v2");
+    expect(node!.annotatedAt).toBeGreaterThan(0);
+  });
+
+  test("honors filter to scope the rewrite", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "keep me" },
+        text: "keep me",
+      },
+      annotations: {
+        summary: "keep me",
+        tags: ["keep"],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "rewrite me" },
+        text: "rewrite me",
+      },
+      annotations: {
+        summary: "rewrite me",
+        tags: ["rewrite"],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+
+    const tagger: import("memorai").Extractor = {
+      extract: async (event) => {
+        const text = event.content.kind === "observation" ? event.content.text : "";
+        return [
+          {
+            raw: { content: event.content, text },
+            annotations: {
+              summary: text,
+              tags: ["touched"],
+              salienceScore: 0.5,
+              modality: ["text"],
+            },
+            annotationVersion: "tagger-v1",
+          },
+        ];
+      },
+    };
+
+    const result = await memory.reAnnotate({
+      extractor: tagger,
+      filter: (n) => n.level === "segment" && n.annotations.tags.includes("rewrite"),
+    });
+
+    expect(result.reannotated).toBe(1);
+
+    const all = await memory.list({ level: "segment" });
+    const kept = all.find((n) => n.raw.text === "keep me");
+    const touched = all.find((n) => n.raw.text === "rewrite me");
+    expect(kept!.annotations.tags).toEqual(["keep"]);
+    expect(touched!.annotations.tags).toEqual(["touched"]);
+  });
+
+  test("skipEmbedding keeps the existing embedding", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+
+    const original = await memory.write({
+      raw: {
+        content: { kind: "observation", text: "stable embedding" },
+        text: "stable embedding",
+      },
+      annotations: {
+        summary: "stable embedding",
+        embedding: [0.42, 0.42, 0.42, 0.42],
+        tags: [],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+
+    const annotateOnly: import("memorai").Extractor = {
+      extract: async (event) => {
+        const text = event.content.kind === "observation" ? event.content.text : "";
+        return [
+          {
+            raw: { content: event.content, text },
+            annotations: {
+              summary: text,
+              tags: ["fresh-tag"],
+              salienceScore: 0.5,
+              modality: ["text"],
+            },
+            annotationVersion: "noembed-v1",
+          },
+        ];
+      },
+    };
+
+    await memory.reAnnotate({
+      extractor: annotateOnly,
+      filter: (n) => n.level === "segment",
+      skipEmbedding: true,
+    });
+
+    const node = await memory.get(original.id);
+    expect(node!.annotations.embedding).toEqual([0.42, 0.42, 0.42, 0.42]);
+    expect(node!.annotations.tags).toEqual(["fresh-tag"]);
+  });
+
+  test("records per-node errors without aborting the batch", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+
+    const good = await memory.write({
+      raw: {
+        content: { kind: "observation", text: "good" },
+        text: "good",
+      },
+      annotations: {
+        summary: "good",
+        tags: [],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "bad" },
+        text: "bad",
+      },
+      annotations: {
+        summary: "bad",
+        tags: [],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+
+    const flaky: import("memorai").Extractor = {
+      extract: async (event) => {
+        const text = event.content.kind === "observation" ? event.content.text : "";
+        if (text === "bad") throw new Error("nope");
+        return [
+          {
+            raw: { content: event.content, text },
+            annotations: {
+              summary: `${text}!`,
+              tags: [],
+              salienceScore: 0.5,
+              modality: ["text"],
+            },
+            annotationVersion: "flaky-v1",
+          },
+        ];
+      },
+    };
+
+    const result = await memory.reAnnotate({
+      extractor: flaky,
+      filter: (n) => n.level === "segment",
+    });
+    expect(result.reannotated).toBe(1);
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0].error).toContain("nope");
+
+    const node = await memory.get(good.id);
+    expect(node!.annotations.summary).toBe("good!");
+  });
+
+  test("reports progress through onProgress callback", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+
+    for (const text of ["one", "two", "three"]) {
+      await memory.write({
+        raw: { content: { kind: "observation", text }, text },
+        annotations: {
+          summary: text,
+          tags: [],
+          salienceScore: 0.5,
+          modality: ["text"],
+        },
+      });
+    }
+
+    const noop: import("memorai").Extractor = {
+      extract: async (event) => [
+        {
+          raw: {
+            content: event.content,
+            text: event.content.kind === "observation" ? event.content.text : "",
+          },
+          annotations: {
+            summary: event.content.kind === "observation" ? event.content.text : "",
+            tags: [],
+            salienceScore: 0.5,
+            modality: ["text"],
+          },
+          annotationVersion: "noop-v1",
+        },
+      ],
+    };
+
+    const progress: Array<[number, number]> = [];
+    await memory.reAnnotate({
+      extractor: noop,
+      filter: (n) => n.level === "segment",
+      onProgress: (done, total) => {
+        progress.push([done, total]);
+      },
+    });
+
+    expect(progress).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
 // Phase 3: Advanced Retrieval Tests
 // ═══════════════════════════════════════════════════════════
 
@@ -374,8 +687,8 @@ describe("RetrievalEngine — Phase 3", () => {
       makeNode("coding session morning", [1, 0, 0, 0], {
         timestamp: now - 3600000,
         level: "atomic_action",
-        payload: {
-          ...makeNode("", [1, 0, 0, 0]).payload,
+        annotations: {
+          ...makeNode("", [1, 0, 0, 0]).annotations,
           summary: "coding session morning",
           tags: ["coding"],
           salienceScore: 0.6,
@@ -386,8 +699,8 @@ describe("RetrievalEngine — Phase 3", () => {
       makeNode("coding session afternoon", [0.95, 0.05, 0, 0], {
         timestamp: now - 600000,
         level: "atomic_action",
-        payload: {
-          ...makeNode("", [0.95, 0.05, 0, 0]).payload,
+        annotations: {
+          ...makeNode("", [0.95, 0.05, 0, 0]).annotations,
           summary: "coding session afternoon",
           tags: ["coding"],
           salienceScore: 0.7,
@@ -398,8 +711,8 @@ describe("RetrievalEngine — Phase 3", () => {
       makeNode("gym workout", [0, 1, 0, 0], {
         timestamp: now - 300000,
         level: "segment",
-        payload: {
-          ...makeNode("", [0, 1, 0, 0]).payload,
+        annotations: {
+          ...makeNode("", [0, 1, 0, 0]).annotations,
           summary: "gym workout",
           tags: ["fitness", "health"],
           salienceScore: 0.9,
@@ -410,8 +723,8 @@ describe("RetrievalEngine — Phase 3", () => {
       makeNode("cooking dinner", [0, 0, 1, 0], {
         timestamp: now - 7200000,
         level: "segment",
-        payload: {
-          ...makeNode("", [0, 0, 1, 0]).payload,
+        annotations: {
+          ...makeNode("", [0, 0, 1, 0]).annotations,
           summary: "cooking dinner",
           tags: ["food"],
           salienceScore: 0.3,
@@ -423,8 +736,8 @@ describe("RetrievalEngine — Phase 3", () => {
         timestamp: now - 1800000,
         level: "event",
         childrenIds: ["child1", "child2"],
-        payload: {
-          ...makeNode("", [1, 0, 0, 0]).payload,
+        annotations: {
+          ...makeNode("", [1, 0, 0, 0]).annotations,
           summary: "coding project overview",
           tags: ["coding", "project"],
           salienceScore: 0.8,
@@ -458,7 +771,7 @@ describe("RetrievalEngine — Phase 3", () => {
     });
 
     // Recent gym should rank higher than old cooking
-    const summaries = result.nodes.map((n) => n.payload.summary);
+    const summaries = result.nodes.map((n) => n.annotations.summary ?? "");
     expect(summaries.some((s) => s.includes("gym"))).toBe(true);
   });
 
@@ -530,8 +843,8 @@ describe("RetrievalEngine — Phase 3", () => {
 
     // Highest salience should be first
     if (result.nodes.length >= 2) {
-      expect(result.nodes[0].payload.salienceScore).toBeGreaterThanOrEqual(
-        result.nodes[1].payload.salienceScore,
+      expect(result.nodes[0].annotations.salienceScore).toBeGreaterThanOrEqual(
+        result.nodes[1].annotations.salienceScore,
       );
     }
   });
@@ -560,7 +873,7 @@ describe("RetrievalEngine — Phase 3", () => {
     });
 
     // Tag search should find gym node even without embedding
-    const summaries = result.nodes.map((n) => n.payload.summary);
+    const summaries = result.nodes.map((n) => n.annotations.summary ?? "");
     expect(summaries.some((s) => s.includes("gym"))).toBe(true);
   });
 
@@ -612,7 +925,7 @@ describe("SQLiteAdapter", () => {
     const fetched = await adapter.get(node.id);
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(node.id);
-    expect(fetched!.payload.summary).toBe("sqlite test");
+    expect(fetched!.annotations.summary).toBe("sqlite test");
   });
 
   test("queryByTimeRange", async () => {
@@ -624,13 +937,13 @@ describe("SQLiteAdapter", () => {
 
     const results = await adapter.queryByTimeRange(now - 5000, now);
     expect(results.length).toBe(1);
-    expect(results[0].payload.summary).toBe("recent");
+    expect(results[0].annotations.summary).toBe("recent");
   });
 
   test("queryByTags", async () => {
     const n1 = makeNode("tagged", [1, 0, 0, 0], {
-      payload: {
-        ...makeNode("tagged", [1, 0, 0, 0]).payload,
+      annotations: {
+        ...makeNode("tagged", [1, 0, 0, 0]).annotations,
         tags: ["coding", "ai"],
       },
     });
@@ -642,14 +955,14 @@ describe("SQLiteAdapter", () => {
 
   test("queryBySalience", async () => {
     const n1 = makeNode("high", [1, 0, 0, 0], {
-      payload: {
-        ...makeNode("high", [1, 0, 0, 0]).payload,
+      annotations: {
+        ...makeNode("high", [1, 0, 0, 0]).annotations,
         salienceScore: 0.9,
       },
     });
     const n2 = makeNode("low", [1, 0, 0, 0], {
-      payload: {
-        ...makeNode("low", [1, 0, 0, 0]).payload,
+      annotations: {
+        ...makeNode("low", [1, 0, 0, 0]).annotations,
         salienceScore: 0.2,
       },
     });
@@ -658,7 +971,7 @@ describe("SQLiteAdapter", () => {
 
     const results = await adapter.queryBySalience(0.8);
     expect(results.length).toBe(1);
-    expect(results[0].payload.summary).toBe("high");
+    expect(results[0].annotations.summary).toBe("high");
   });
 
   test("getChildren", async () => {
@@ -685,14 +998,14 @@ describe("SQLiteAdapter", () => {
 
   test("listAll with sorting", async () => {
     const n1 = makeNode("a", [1, 0, 0, 0], {
-      payload: {
-        ...makeNode("a", [1, 0, 0, 0]).payload,
+      annotations: {
+        ...makeNode("a", [1, 0, 0, 0]).annotations,
         salienceScore: 0.2,
       },
     });
     const n2 = makeNode("b", [1, 0, 0, 0], {
-      payload: {
-        ...makeNode("b", [1, 0, 0, 0]).payload,
+      annotations: {
+        ...makeNode("b", [1, 0, 0, 0]).annotations,
         salienceScore: 0.8,
       },
     });
@@ -700,7 +1013,7 @@ describe("SQLiteAdapter", () => {
     await adapter.put(n2);
 
     const desc = await adapter.listAll({ orderBy: "salience", order: "desc" });
-    expect(desc[0].payload.salienceScore).toBe(0.8);
+    expect(desc[0].annotations.salienceScore).toBe(0.8);
   });
 });
 
@@ -727,8 +1040,8 @@ describe("SQLiteAdapter — real better-sqlite3", () => {
     const fetched = await adapter.get(node.id);
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(node.id);
-    expect(fetched!.payload.summary).toBe("real sqlite");
-    expect(fetched!.payload.tags).toEqual(node.payload.tags);
+    expect(fetched!.annotations.summary).toBe("real sqlite");
+    expect(fetched!.annotations.tags).toEqual(node.annotations.tags);
 
     const byTag = await adapter.queryByTags(["test"]);
     expect(byTag.length).toBe(1);

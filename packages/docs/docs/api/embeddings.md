@@ -1,20 +1,22 @@
 # Embedding Service
 
-The `EmbeddingService` interface lets Memorai stay model-agnostic. Bring whatever embedding model you like — hosted, local, transformers.js, ONNX — as long as it implements three things.
+The `EmbeddingService` interface lets Memorai stay model-agnostic. Bring whatever embedding model you like — hosted, local, transformers.js, ONNX — as long as it implements two things.
 
 ## Interface
 
 ```typescript
 interface EmbeddingService {
   embed(text: string): Promise<number[]>;
-  embedMultimodal?(payload: MultimodalPayload): Promise<number[]>;
+  embedBatch?(texts: string[]): Promise<number[][]>;
   dimension: number;
 }
 ```
 
 - `embed(text)` — required. Returns a fixed-dimension vector.
-- `embedMultimodal(payload)` — optional. If implemented, Memorai will use it for nodes with non-text modalities.
+- `embedBatch(texts)` — optional. If implemented, `Memorai.writeBatch()` uses it to embed many nodes in a single round-trip.
 - `dimension` — required. The vector dimension. Must be stable across calls and must match what your storage adapter expects.
+
+Memorai embeds the **composed indexable text** of each node (Tier 1 `raw.text` + Tier 2 `annotations.summary` + `facts`). This means upgrading the extractor and calling `reAnnotate()` naturally refreshes embeddings to reflect the new annotations.
 
 ## Built-in services
 
@@ -59,12 +61,17 @@ class TransformersEmbeddingService implements EmbeddingService {
   async embed(text: string): Promise<number[]> {
     // ...load model, run inference, return vector
   }
+
+  // Optional — speeds up Memorai.writeBatch().
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    return Promise.all(texts.map((t) => this.embed(t)));
+  }
 }
 ```
 
 Tips:
 
 - **Cache where it makes sense.** `embed()` is called once per write and once per text-only query — small cache hits add up.
-- **Batch when possible.** If your model exposes a batch API, override `writeBatch` in your custom wrapper to take advantage. Memorai doesn't batch automatically, but writing one method that batches under the hood is fine.
-- **Match `dimension` exactly.** Switching models mid-database means existing embeddings can't be compared to new ones cleanly. Reset storage or run a migration.
+- **Implement `embedBatch` if your model supports it.** Memorai's `writeBatch()` and the bulk `reAnnotate()` path both honour it for a meaningful speedup.
+- **Match `dimension` exactly.** Switching models mid-database means existing embeddings can't be compared to new ones cleanly. Run `memory.reAnnotate()` (without `skipEmbedding`) to recompute everything after a model swap.
 - **Stay synchronous-ish.** `embed` is `async`, but try to keep the latency under a few hundred ms per call. Retrieval blocks on it.

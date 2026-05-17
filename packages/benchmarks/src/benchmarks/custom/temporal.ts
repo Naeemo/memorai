@@ -18,7 +18,8 @@ export async function runTemporalBenchmark(): Promise<BenchmarkResult> {
 
   for (const m of memories) {
     await memory.write({
-      payload: m.payload,
+      raw: m.raw,
+      annotations: m.annotations,
       timestamp: m.timestamp,
       meta: m.meta,
     });

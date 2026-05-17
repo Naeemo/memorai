@@ -1,28 +1,46 @@
 import type { Event, ExtractContext, Extractor, WritePayload } from "../types.js";
-import { buildBaseWrite, contentToTextAndMedia } from "./shared.js";
+import { buildBaseWrite, rawIndexableText } from "./shared.js";
+
+const EXTRACTOR_VERSION = "light-v1";
 
 /**
  * Heuristic-based extractor — no LLM required.
  *
- * Salience: weighted combination of length, emphasis tokens, named-entity
- * density, presence of dates/times, and inversion words (e.g. "actually").
- *
- * Tags: extracted proper-noun-like tokens, hashtags, mentions, plus the
- * actor and target. Lower-cased for canonical comparison.
+ * Writes:
+ *   - Tier 1 `raw` unchanged from the upstream Event
+ *   - Tier 2 `annotations.tags` (proper-noun + hashtag + mention)
+ *           `annotations.salienceScore` (heuristic mix of emphasis tokens,
+ *                                        date-likes, length, proper-noun density)
  */
 export class LightExtractor implements Extractor {
   async extract(event: Event, ctx: ExtractContext): Promise<WritePayload[]> {
-    const { summary } = contentToTextAndMedia(event.content);
-    const tags = extractTags(summary);
-    const salience = event.salienceHint ?? scoreSalience(summary);
+    const base = buildBaseWrite(event, ctx.now());
+    const text = rawIndexableText(base.raw);
+    const tags = extractTags(text);
+    const salience = event.salienceHint ?? scoreSalience(text);
 
-    return [buildBaseWrite(event, ctx.now(), { tags, salienceScore: salience })];
+    const annotations = base.annotations ?? {};
+    annotations.tags = mergeTags(annotations.tags, tags);
+    annotations.salienceScore = salience;
+    base.annotations = annotations;
+    base.annotationVersion = EXTRACTOR_VERSION;
+    return [base];
   }
 }
 
-const EMPHASIS = /\b(important|critical|urgent|asap|remember|don'?t forget|note that|warning|alert)\b/i;
-const INVERSION = /\b(actually|but|however|instead|previously|originally|now|update[ds]?|change[ds]?)\b/i;
-const DATE_LIKE = /\b\d{1,2}[:/-]\d{1,2}([:/-]\d{2,4})?\b|\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|yesterday|today|tonight|next (week|month|year)|last (week|month|year))\b/i;
+function mergeTags(a: string[] | undefined, b: string[]): string[] {
+  const set = new Set<string>();
+  for (const t of a ?? []) set.add(t.toLowerCase());
+  for (const t of b) set.add(t.toLowerCase());
+  return [...set];
+}
+
+const EMPHASIS =
+  /\b(important|critical|urgent|asap|remember|don'?t forget|note that|warning|alert)\b/i;
+const INVERSION =
+  /\b(actually|but|however|instead|previously|originally|now|update[ds]?|change[ds]?)\b/i;
+const DATE_LIKE =
+  /\b\d{1,2}[:/-]\d{1,2}([:/-]\d{2,4})?\b|\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|yesterday|today|tonight|next (week|month|year)|last (week|month|year))\b/i;
 const QUESTION = /\?/;
 const PROPER_NOUN = /\b[A-Z][a-zA-Z]{1,}\b/g;
 const HASHTAG = /#([a-zA-Z][a-zA-Z0-9_]*)/g;

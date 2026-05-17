@@ -27,11 +27,7 @@ export class LLMReranker implements RerankerService {
     this.snippetChars = opts.snippetChars ?? 240;
   }
 
-  async rerank(
-    query: string,
-    docs: RerankDoc[],
-    topK: number,
-  ): Promise<RerankResult[]> {
+  async rerank(query: string, docs: RerankDoc[], topK: number): Promise<RerankResult[]> {
     if (docs.length === 0) return [];
     const capped = docs.slice(0, this.maxDocs);
     const prompt = buildPrompt(query, capped, this.snippetChars);

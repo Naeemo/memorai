@@ -59,7 +59,7 @@ export async function onHeartbeat() {
   if (recent.nodes.length > 0) {
     console.log(
       "[Heartbeat] Recent memories:",
-      recent.nodes.map((n) => n.payload.summary),
+      recent.nodes.map((n) => n.annotations.summary ?? n.raw.text ?? ""),
     );
   }
 }
@@ -69,26 +69,20 @@ export async function onHeartbeat() {
 export async function onMessage(message: string, context: { channel: string; user: string }) {
   if (!memory) throw new Error("Memory not initialized");
 
-  // Store the incoming message as a segment
-  await memory.write({
-    payload: {
-      summary: `User ${context.user}: ${message.slice(0, 200)}`,
-      tags: ["message", context.channel],
-      salienceScore: 0.6,
-      modality: ["text"],
-    },
+  // Record the incoming message as an event — extraction runs in the background.
+  memory.recordEvent({
+    at: Date.now(),
+    actor: context.user,
+    content: { kind: "message", text: message },
+    tags: ["message", context.channel],
+    salienceHint: 0.6,
   });
 
-  // Retrieve relevant context for generating a reply
-  const relevant = await memory.retrieve({
-    strategy: "factual",
-    text: message,
-    topK: 5,
-  });
+  // Recall relevant context for generating a reply
+  const relevant = await memory.recall(message, { topK: 5 });
 
-  // Build prompt with retrieved context
-  const contextLines = relevant.nodes
-    .map((n) => `[${new Date(n.timestamp).toISOString()}] ${n.payload.summary}`)
+  const contextLines = relevant.memories
+    .map((m) => `[${new Date(m.at).toISOString()}] ${m.summary}`)
     .join("\n");
 
   return {

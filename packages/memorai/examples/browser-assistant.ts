@@ -36,52 +36,51 @@ const memory = new Memorai({
 
 // ─── 2. Record page visits ───
 
-async function recordPageVisit(url: string, title: string, screenshot?: ImageData) {
-  await memory.write({
-    timestamp: Date.now(),
-    payload: {
-      summary: `Visited page: ${title}`,
-      description: `URL: ${url}`,
+function recordPageVisit(url: string, title: string, screenshot?: ImageData) {
+  if (screenshot) {
+    memory.recordEvent({
+      at: Date.now(),
+      actor: "user",
+      content: { kind: "image", image: screenshot, caption: `${title} — ${url}` },
       tags: ["page-visit", ...extractDomainTags(url)],
-      salienceScore: 0.6,
-      modality: screenshot ? ["text", "vision"] : ["text"],
-      media: screenshot ? { frames: [screenshot] } : undefined,
-    },
-  });
+      salienceHint: 0.6,
+    });
+  } else {
+    memory.recordEvent({
+      at: Date.now(),
+      actor: "user",
+      content: { kind: "observation", text: `Visited page: ${title} (${url})` },
+      tags: ["page-visit", ...extractDomainTags(url)],
+      salienceHint: 0.6,
+    });
+  }
 }
 
 // ─── 3. Record user actions ───
 
-async function recordClick(elementText: string, context: string) {
-  await memory.write({
-    payload: {
-      summary: `Clicked: ${elementText}`,
-      description: context,
-      tags: ["click", "interaction"],
-      salienceScore: 0.5,
-      modality: ["text"],
-    },
+function recordClick(elementText: string, context: string) {
+  memory.recordEvent({
+    at: Date.now(),
+    actor: "user",
+    content: { kind: "observation", text: `Clicked: ${elementText} — ${context}` },
+    tags: ["click", "interaction"],
+    salienceHint: 0.5,
   });
 }
 
 // ─── 4. Ask the assistant ───
 
 async function ask(question: string) {
-  const result = await memory.retrieve({
-    strategy: "factual",
-    text: question,
-    topK: 10,
-  });
+  const result = await memory.recall(question, { topK: 10 });
 
-  // Build context for LLM
-  const context = result.nodes
-    .map((n) => `[${new Date(n.timestamp).toISOString()}] ${n.payload.summary}`)
+  const context = result.memories
+    .map((m) => `[${new Date(m.at).toISOString()}] ${m.summary}`)
     .join("\n");
 
   return {
     answer: `Based on your recent activity...`, // LLM call here
     context,
-    sources: result.nodes,
+    sources: result.memories,
   };
 }
 
@@ -91,17 +90,12 @@ async function summarizeToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const result = await memory.retrieve({
-    strategy: "temporal",
-    timeRange: {
-      start: today.getTime(),
-      end: Date.now(),
-    },
-    traversalOrder: "forward",
-    topK: 20,
-  });
+  const result = await memory.recallByTime(
+    { start: today.getTime(), end: Date.now() },
+    { traversalOrder: "forward", topK: 20 },
+  );
 
-  return result.nodes.map((n) => n.payload.summary);
+  return result.memories.map((m) => m.summary);
 }
 
 // ─── Helpers ───
@@ -118,12 +112,12 @@ function extractDomainTags(url: string): string[] {
 // ─── Usage ───
 
 async function main() {
-  await recordPageVisit(
+  recordPageVisit(
     "https://github.com/Naeemo/memorai",
     "Naeemo/memorai: Streaming memory for AI agents",
   );
 
-  await recordClick("README.md", "Navigated to README in the memorai repo");
+  recordClick("README.md", "Navigated to README in the memorai repo");
 
   const summary = await summarizeToday();
   console.log("Today you:", summary.join("; "));

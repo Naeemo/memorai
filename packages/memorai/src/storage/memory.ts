@@ -1,5 +1,6 @@
 import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
 import { BM25Index } from "../bm25.js";
+import { composeIndexableText } from "../extraction/shared.js";
 
 /**
  * In-memory storage adapter.
@@ -67,7 +68,7 @@ export class MemoryAdapter implements StorageAdapter {
 
   queryBySalience(minScore: number, opts?: QueryOpts): Promise<MemoryNode[]> {
     const results = Array.from(this.nodes.values()).filter(
-      (n) => n.payload.salienceScore >= minScore,
+      (n) => n.annotations.salienceScore >= minScore,
     );
     return Promise.resolve(this.applyOpts(results, opts));
   }
@@ -84,10 +85,7 @@ export class MemoryAdapter implements StorageAdapter {
     return Promise.resolve(this.applyOpts(this.lookup(this.targetIndex, target), opts));
   }
 
-  queryByText(
-    text: string,
-    opts?: QueryOpts & { limit?: number },
-  ): Promise<MemoryNode[]> {
+  queryByText(text: string, opts?: QueryOpts & { limit?: number }): Promise<MemoryNode[]> {
     const limit = opts?.limit ?? 50;
     const hits = this.bm25.search(text, Math.max(limit, opts?.limit ?? 50));
     const nodes = hits
@@ -97,9 +95,7 @@ export class MemoryAdapter implements StorageAdapter {
   }
 
   getChildren(parentId: string): Promise<MemoryNode[]> {
-    return Promise.resolve(
-      Array.from(this.nodes.values()).filter((n) => n.parentId === parentId),
-    );
+    return Promise.resolve(Array.from(this.nodes.values()).filter((n) => n.parentId === parentId));
   }
 
   getParent(childId: string): Promise<MemoryNode | null> {
@@ -125,7 +121,7 @@ export class MemoryAdapter implements StorageAdapter {
   // ─── Helpers ───
 
   private index(node: MemoryNode): void {
-    for (const tag of node.payload.tags) {
+    for (const tag of node.annotations.tags) {
       addToIndex(this.tagIndex, tag.toLowerCase(), node.id);
     }
     if (node.userId) addToIndex(this.userIndex, node.userId, node.id);
@@ -137,7 +133,7 @@ export class MemoryAdapter implements StorageAdapter {
   private unindex(id: string): void {
     const existing = this.nodes.get(id);
     if (!existing) return;
-    for (const tag of existing.payload.tags) {
+    for (const tag of existing.annotations.tags) {
       removeFromIndex(this.tagIndex, tag.toLowerCase(), id);
     }
     if (existing.userId) removeFromIndex(this.userIndex, existing.userId, id);
@@ -147,10 +143,7 @@ export class MemoryAdapter implements StorageAdapter {
   }
 
   private indexableText(node: MemoryNode): string {
-    const parts = [node.payload.summary];
-    if (node.payload.description) parts.push(node.payload.description);
-    if (node.payload.tags.length > 0) parts.push(node.payload.tags.join(" "));
-    return parts.join(" ");
+    return composeIndexableText(node.raw, node.annotations);
   }
 
   private lookup(index: Map<string, Set<string>>, key: string): MemoryNode[] {
@@ -176,8 +169,8 @@ export class MemoryAdapter implements StorageAdapter {
           av = a.timestamp;
           bv = b.timestamp;
         } else if (key === "salience") {
-          av = a.payload.salienceScore;
-          bv = b.payload.salienceScore;
+          av = a.annotations.salienceScore;
+          bv = b.annotations.salienceScore;
         } else {
           av = a.meta.lastAccessed ?? 0;
           bv = b.meta.lastAccessed ?? 0;

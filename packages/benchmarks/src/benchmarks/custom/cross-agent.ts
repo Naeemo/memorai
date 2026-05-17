@@ -35,7 +35,8 @@ export async function runCrossAgentBenchmark(): Promise<BenchmarkResult> {
     });
 
     await memory.write({
-      payload: m.payload,
+      raw: m.raw,
+      annotations: m.annotations,
       meta: m.meta,
     });
     await memory.close();

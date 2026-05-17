@@ -49,8 +49,8 @@ export function clamp(value: number, min: number, max: number): number {
  * temporalFactor = 1 - (gap / maxGap), capped at 0
  */
 export function compatibilityScore(
-  a: { payload: { embedding?: number[] } },
-  b: { payload: { embedding?: number[] } },
+  a: { annotations: { embedding?: number[] } },
+  b: { annotations: { embedding?: number[] } },
   timeGapMs: number,
   opts: {
     semanticWeight?: number;
@@ -61,8 +61,8 @@ export function compatibilityScore(
   const { semanticWeight = 0.7, temporalWeight = 0.3, maxTemporalGapMs = 30000 } = opts;
 
   let semanticScore = 0;
-  if (a.payload.embedding && b.payload.embedding) {
-    semanticScore = cosineSimilarity(a.payload.embedding, b.payload.embedding);
+  if (a.annotations.embedding && b.annotations.embedding) {
+    semanticScore = cosineSimilarity(a.annotations.embedding, b.annotations.embedding);
   }
 
   const temporalFactor = Math.max(0, 1 - timeGapMs / maxTemporalGapMs);
