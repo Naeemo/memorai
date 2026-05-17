@@ -1,9 +1,11 @@
 import {
   LightExtractor,
   LLMExtractor,
+  LLMReranker,
   Memorai,
   MemoryAdapter,
   WrapExtractor,
+  parseRerankerScores,
   type EmbeddingService,
   type Event,
   type LLMService,
@@ -332,6 +334,198 @@ describe("Auto-evolve triggers", () => {
 
     const events = await memory.list({ level: "event" });
     expect(events.length).toBeGreaterThan(0);
+    await memory.close();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// Query expansion + HyDE + provenance
+// ═══════════════════════════════════════════════════════════
+
+describe("Multi-pathway recall", () => {
+  test("provenance lists the pathways that surfaced each memory", async () => {
+    const memory = new Memorai(baseConfig());
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      target: "bob",
+      content: { kind: "message", text: "the secret password is rosebud" },
+    }).nodes;
+
+    const result = await memory.recall("password", {
+      topK: 3,
+      actor: "alice",
+    });
+    expect(result.memories.length).toBeGreaterThan(0);
+    const m = result.memories[0];
+    expect(m.provenance).toBeDefined();
+    expect(m.provenance!.pathways.length).toBeGreaterThan(0);
+    // BM25 should surface the literal token "password"; semantic should too.
+    expect(
+      m.provenance!.pathways.some((p) => p === "bm25" || p === "semantic"),
+    ).toBe(true);
+    await memory.close();
+  });
+
+  test("query expansion runs N variants and fuses them", async () => {
+    let callCount = 0;
+    const stubLLM: LLMService = {
+      complete: async (prompt) => {
+        callCount += 1;
+        // Cheap stub: produce 3 paraphrases.
+        if (prompt.includes("paraphrases")) {
+          return "What is the secret password?\nDo you know the password?\nWhat password did Alice mention?";
+        }
+        return "stub";
+      },
+    };
+    const memory = new Memorai({ ...baseConfig(), llm: stubLLM });
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      content: { kind: "message", text: "the secret password is rosebud" },
+    }).nodes;
+
+    const result = await memory.recall("password", {
+      topK: 5,
+      queryExpansion: 3,
+    });
+    expect(callCount).toBeGreaterThan(0);
+    expect(result.memories.length).toBeGreaterThan(0);
+    const pathways = result.memories[0].provenance?.pathways ?? [];
+    // Variant-level tags should appear
+    expect(
+      pathways.includes("primary") ||
+        pathways.some((p) => p.startsWith("expansion:")),
+    ).toBe(true);
+    await memory.close();
+  });
+
+  test("HyDE adds a 'hyde' pathway when LLM is configured", async () => {
+    const stubLLM: LLMService = {
+      complete: async (prompt) => {
+        if (prompt.includes("hypothetical answer")) {
+          return "The secret password is rosebud, which Alice mentioned earlier.";
+        }
+        return "stub";
+      },
+    };
+    const memory = new Memorai({ ...baseConfig(), llm: stubLLM });
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      content: { kind: "message", text: "the secret password is rosebud" },
+    }).nodes;
+
+    const result = await memory.recall("password", {
+      topK: 5,
+      hyde: true,
+    });
+    expect(result.memories.length).toBeGreaterThan(0);
+    const pathways = result.memories[0].provenance?.pathways ?? [];
+    expect(pathways).toContain("hyde");
+    await memory.close();
+  });
+
+  test("recall without LLM is unchanged when expansion/hyde are off", async () => {
+    const memory = new Memorai(baseConfig()); // no llm
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      content: { kind: "message", text: "the secret password is rosebud" },
+    }).nodes;
+
+    // queryExpansion/hyde without LLM should silently no-op.
+    const result = await memory.recall("password", {
+      topK: 3,
+      queryExpansion: 3,
+      hyde: true,
+    });
+    expect(result.memories.length).toBeGreaterThan(0);
+    await memory.close();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// Reranker
+// ═══════════════════════════════════════════════════════════
+
+describe("LLMReranker", () => {
+  test("parseRerankerScores reads scores in order, tolerates noise", () => {
+    expect(parseRerankerScores("8\n2\n5", 3)).toEqual([0.8, 0.2, 0.5]);
+    expect(parseRerankerScores("[0] 9\n[1] 0\n[2] 7.5", 3)).toEqual([0.9, 0, 0.75]);
+    // missing lines pad with 0
+    expect(parseRerankerScores("9\n", 3)).toEqual([0.9, 0, 0]);
+    // out-of-range clamps to [0,1]
+    expect(parseRerankerScores("11\n-3", 2)).toEqual([1, 0]);
+  });
+
+  test("reranker reorders memories by relevance", async () => {
+    // The reranker says doc 1 is most relevant, doc 0 second, doc 2 third.
+    const stubLLM: LLMService = {
+      complete: async (prompt) => {
+        if (prompt.includes("Rate how relevant")) return "3\n9\n6";
+        return "stub";
+      },
+    };
+    const memory = new Memorai({
+      ...baseConfig(),
+      reranker: new LLMReranker({ llm: stubLLM }),
+    });
+
+    const e1 = await memory.recordEvent({
+      at: Date.now() - 3000,
+      actor: "u",
+      content: { kind: "message", text: "alpha bravo charlie delta echo" },
+    }).nodes;
+    const e2 = await memory.recordEvent({
+      at: Date.now() - 2000,
+      actor: "u",
+      content: { kind: "message", text: "alpha bravo charlie delta echo two" },
+    }).nodes;
+    const e3 = await memory.recordEvent({
+      at: Date.now() - 1000,
+      actor: "u",
+      content: { kind: "message", text: "alpha bravo charlie delta echo three" },
+    }).nodes;
+
+    const result = await memory.recall("alpha bravo", { topK: 3 });
+    expect(result.memories.length).toBe(3);
+    // Reranker output order: idx1 (highest), idx0, idx2
+    // The order in `docs` is the input pre-rerank order; the stub returns
+    // scores 3, 9, 6 for docs 0, 1, 2 respectively. So result[0] must have
+    // come from doc index 1 (score 9), result[1] from index 0 (3), and the
+    // memory at result[0] must carry pathways including "rerank".
+    expect(result.memories[0].provenance?.pathways).toContain("rerank");
+    expect(result.memories[0].score).toBeCloseTo(0.9, 5);
+
+    await memory.close();
+    void e1;
+    void e2;
+    void e3;
+  });
+
+  test("reranker failure falls back to fused list", async () => {
+    const stubLLM: LLMService = {
+      complete: async () => {
+        throw new Error("LLM unavailable");
+      },
+    };
+    const memory = new Memorai({
+      ...baseConfig(),
+      reranker: new LLMReranker({ llm: stubLLM }),
+    });
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "u",
+      content: { kind: "message", text: "alpha bravo charlie" },
+    }).nodes;
+
+    const result = await memory.recall("alpha", { topK: 3 });
+    expect(result.memories.length).toBeGreaterThan(0);
+    // Pathways should NOT include "rerank" because the LLM call failed and
+    // we returned the fused list unchanged.
+    expect(result.memories[0].provenance?.pathways ?? []).not.toContain("rerank");
     await memory.close();
   });
 });

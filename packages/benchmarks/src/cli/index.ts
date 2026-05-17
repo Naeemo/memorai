@@ -15,6 +15,10 @@ interface CliOptions {
   ingestMode: "wrap" | "extract" | "paired";
   extractor: "wrap" | "llm";
   extractorModel?: string;
+  reranker: "llm" | "none";
+  rerankerModel?: string;
+  queryExpansion?: number;
+  hyde: boolean;
   embedder: "ollama" | "openai";
   topK: number;
   limit?: number;
@@ -48,6 +52,8 @@ function parseArgs(argv: string[]): CliOptions {
     provider: "memorai",
     ingestMode: "wrap",
     extractor: "wrap",
+    reranker: "none",
+    hyde: false,
     embedder: "ollama",
     topK: 30,
     evolve: true,
@@ -77,6 +83,18 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--extractor-model":
         opts.extractorModel = next();
+        break;
+      case "--reranker":
+        opts.reranker = next() as CliOptions["reranker"];
+        break;
+      case "--reranker-model":
+        opts.rerankerModel = next();
+        break;
+      case "--query-expansion":
+        opts.queryExpansion = Number.parseInt(next(), 10);
+        break;
+      case "--hyde":
+        opts.hyde = true;
         break;
       case "--embedder":
         opts.embedder = next() as CliOptions["embedder"];
@@ -138,6 +156,10 @@ options:
   --provider memorai|naive-rag           (default: memorai)
   --extractor wrap|llm                   (default: wrap; llm uses Ollama answerer for ingest extraction)
   --extractor-model <id>                 (default: gemma4:e2b — small local model for fast extraction)
+  --reranker llm|none                    (default: none; llm runs LLMReranker over the fused top-N)
+  --reranker-model <id>                  (default: answerer model)
+  --query-expansion <n>                  (default: off; generate N paraphrases and outer-fuse)
+  --hyde                                 (default: off; generate hypothetical answer and use its embedding)
   --ingest-mode wrap|extract|paired      (legacy; superseded by --extractor)
   --embedder ollama|openai               (default: ollama)
   --top-k <n>                            (default: 30)
@@ -164,6 +186,10 @@ function makeProvider(opts: CliOptions): MemoryProvider {
     extractor: opts.extractor,
     extractorModel: opts.extractorModel,
     answererModel: opts.answererModel,
+    reranker: opts.reranker,
+    rerankerModel: opts.rerankerModel,
+    queryExpansion: opts.queryExpansion,
+    hyde: opts.hyde,
   });
 }
 

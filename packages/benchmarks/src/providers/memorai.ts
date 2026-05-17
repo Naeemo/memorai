@@ -1,5 +1,6 @@
 import {
   LLMExtractor,
+  LLMReranker,
   Memorai,
   MemoryAdapter,
   OllamaEmbeddingService,
@@ -10,6 +11,7 @@ import {
   type EventContent,
   type Extractor,
   type LLMService,
+  type RerankerService,
 } from "memorai";
 import type {
   IngestOptions,
@@ -29,6 +31,14 @@ export interface MemoraiProviderOptions {
   extractorModel?: string;
   /** Ollama model to use for answer generation in benchmark QA loop. */
   answererModel?: string;
+  /** "llm" → wire LLMReranker over the configured LLM; "none" → off. */
+  reranker?: "llm" | "none";
+  /** Ollama model for the reranker (defaults to the answerer model). */
+  rerankerModel?: string;
+  /** Number of paraphrase variants to generate at recall time. */
+  queryExpansion?: number;
+  /** Enable HyDE — generate hypothetical answer and use its embedding. */
+  hyde?: boolean;
   embedder: "ollama" | "openai";
   ollamaModel?: string;
   ollamaDim?: number;
@@ -75,6 +85,26 @@ function pickExtractor(opts: MemoraiProviderOptions): Extractor {
   return new WrapExtractor();
 }
 
+function pickReranker(opts: MemoraiProviderOptions): RerankerService | undefined {
+  if (opts.reranker !== "llm") return undefined;
+  const model =
+    opts.rerankerModel ??
+    process.env.RERANKER_MODEL ??
+    opts.answererModel ??
+    process.env.ANSWERER_MODEL ??
+    "gemma4:31b-cloud";
+  return new LLMReranker({ llm: makeOllamaLLMService(model) });
+}
+
+function pickRecallLLM(opts: MemoraiProviderOptions): LLMService | undefined {
+  // The query-expansion / HyDE path needs an LLM. Reuse the answerer
+  // model unless an explicit override is set via env.
+  if (!opts.queryExpansion && !opts.hyde) return undefined;
+  const model =
+    opts.answererModel ?? process.env.ANSWERER_MODEL ?? "gemma4:31b-cloud";
+  return makeOllamaLLMService(model);
+}
+
 /**
  * Memorai benchmark provider. Routes all benchmark conversations through a
  * single Memorai instance, scoping each conversation by userId.
@@ -108,6 +138,8 @@ export class MemoraiProvider implements MemoryProvider {
       storage: new MemoryAdapter(),
       embedding: makeEmbedder(this.opts),
       extractor: pickExtractor(this.opts),
+      reranker: pickReranker(this.opts),
+      llm: pickRecallLLM(this.opts),
       // Benchmark needs deterministic evolve points — flush manually per session.
       evolution: { mode: "manual" },
     });
@@ -146,12 +178,19 @@ export class MemoraiProvider implements MemoryProvider {
       userId: opts.userId,
       topK: opts.topK ?? 30,
       strategy: "factual",
+      queryExpansion: this.opts.queryExpansion,
+      hyde: this.opts.hyde,
     });
     return result.memories.map((m) => ({
       content: m.summary,
       timestampMs: m.at,
       score: m.score,
-      meta: { id: m.id, level: m.level, salience: m.salienceScore },
+      meta: {
+        id: m.id,
+        level: m.level,
+        salience: m.salienceScore,
+        pathways: m.provenance?.pathways,
+      },
     }));
   }
 

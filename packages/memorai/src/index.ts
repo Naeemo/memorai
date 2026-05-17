@@ -156,11 +156,48 @@ export class Memorai {
   /**
    * Natural-language recall. Returns the most relevant memories along with
    * confidence and traversal stats.
+   *
+   * When `queryExpansion` and/or `hyde` are set (and a LLM is configured),
+   * the question is expanded into multiple variant queries before retrieval,
+   * and the results are fused via outer Reciprocal Rank Fusion. Each variant
+   * shows up as a separate pathway in the final memory's `provenance`.
+   *
+   * When `MemoraiConfig.reranker` is set, a final reranker pass refines the
+   * top-N candidates for precision. Both expansion and reranking are
+   * opt-in and gracefully no-op when their dependencies aren't configured.
    */
   async recall(question: string, opts: RecallOptions = {}): Promise<RecallResult> {
-    const query = this.buildRecallQuery(question, opts);
-    const result = await this.retrieve(query);
-    return this.toRecallResult(result);
+    const variants = await this.expandRecallQueries(question, opts);
+    const topK = opts.topK ?? 10;
+    // Pull more candidates than topK so the optional reranker has room
+    // to reorder. Cap at 3× topK to keep the LLM rerank call bounded.
+    const preRerankTopK = this.config.reranker ? Math.min(topK * 3, 30) : topK;
+
+    let preRerank: RecallResult;
+    if (variants.length === 1) {
+      const query = this.buildRecallQuery(question, { ...opts, topK: preRerankTopK });
+      const result = await this.retrieve(query);
+      preRerank = this.toRecallResult(result);
+    } else {
+      const subResults = await Promise.all(
+        variants.map((v) => {
+          const q = this.buildRecallQuery(v.text, { ...opts, topK: preRerankTopK });
+          if (v.embedding) q.embedding = v.embedding;
+          return this.retrieve(q).then((r) => ({ tag: v.tag, result: r }));
+        }),
+      );
+      preRerank = this.fuseVariantResults(subResults, preRerankTopK);
+    }
+
+    if (!this.config.reranker || preRerank.memories.length === 0) {
+      return {
+        memories: preRerank.memories.slice(0, topK),
+        confidence: preRerank.confidence,
+        totalScanned: preRerank.totalScanned,
+      };
+    }
+
+    return this.applyReranker(question, preRerank, topK);
   }
 
   /** Recall events where the named actor is the producer. */
@@ -535,6 +572,247 @@ export class Memorai {
     };
   }
 
+  /**
+   * Apply the configured reranker to the fused recall candidates. Boosts the
+   * memory's `score` to the reranker's score, adds a "rerank" pathway to
+   * provenance, and slices to topK.
+   */
+  private async applyReranker(
+    query: string,
+    preRerank: RecallResult,
+    topK: number,
+  ): Promise<RecallResult> {
+    const reranker = this.config.reranker!;
+    const docs = preRerank.memories.map((m) => ({
+      id: m.id,
+      text: [m.summary, m.description ?? ""].filter(Boolean).join(" — "),
+    }));
+
+    let reranked;
+    try {
+      reranked = await reranker.rerank(query, docs, topK);
+    } catch {
+      // Reranker failure → return the fused list unchanged.
+      return {
+        memories: preRerank.memories.slice(0, topK),
+        confidence: preRerank.confidence,
+        totalScanned: preRerank.totalScanned,
+      };
+    }
+
+    // Empty result from reranker means "no rerank applied" — fall back.
+    if (reranked.length === 0) {
+      return {
+        memories: preRerank.memories.slice(0, topK),
+        confidence: preRerank.confidence,
+        totalScanned: preRerank.totalScanned,
+      };
+    }
+
+    const byId = new Map(preRerank.memories.map((m) => [m.id, m]));
+    const memories: RecalledMemory[] = [];
+    for (const r of reranked) {
+      const m = byId.get(r.id);
+      if (!m) continue;
+      const pathways = m.provenance?.pathways
+        ? [...m.provenance.pathways, "rerank"]
+        : ["rerank"];
+      const pathwayScores = {
+        ...(m.provenance?.pathwayScores ?? {}),
+        rerank: r.score,
+      };
+      memories.push({
+        ...m,
+        score: r.score,
+        provenance: {
+          pathways,
+          fusedScore: m.provenance?.fusedScore ?? m.score,
+          pathwayScores,
+        },
+      });
+    }
+
+    // Confidence after rerank: average of rerank scores (already in [0,1]).
+    const confidence =
+      memories.length === 0
+        ? 0
+        : memories.reduce((s, m) => s + m.score, 0) / memories.length;
+
+    return {
+      memories,
+      confidence,
+      totalScanned: preRerank.totalScanned,
+    };
+  }
+
+  /**
+   * Generate the list of query variants to run for a single recall call.
+   * Always includes the original question. If a LLM is configured and the
+   * caller opted in, adds query-expansion paraphrases and/or a HyDE variant.
+   */
+  private async expandRecallQueries(
+    question: string,
+    opts: RecallOptions,
+  ): Promise<Array<{ text: string; tag: string; embedding?: number[] }>> {
+    const variants: Array<{ text: string; tag: string; embedding?: number[] }> = [
+      { text: question, tag: "primary" },
+    ];
+
+    const llm = this.config.llm;
+    if (!llm || !question) return variants;
+
+    const tasks: Promise<void>[] = [];
+
+    if (opts.queryExpansion && opts.queryExpansion > 0) {
+      tasks.push(
+        (async () => {
+          try {
+            const n = Math.min(5, opts.queryExpansion!);
+            const prompt = `Rewrite the following question into ${n} different paraphrases that preserve the original intent. Output the paraphrases on separate lines, no numbering, no commentary.\n\nQUESTION: ${question}`;
+            const raw = await llm.complete(prompt, {
+              temperature: 0.7,
+              maxTokens: 256,
+            });
+            const lines = raw
+              .split(/\r?\n/)
+              .map((l) => l.replace(/^[\s\-•*\d.()]+/, "").trim())
+              .filter((l) => l.length > 4 && l.length < 400);
+            for (const [i, l] of lines.slice(0, n).entries()) {
+              variants.push({ text: l, tag: `expansion:${i}` });
+            }
+          } catch {
+            // best-effort; ignore expansion failures
+          }
+        })(),
+      );
+    }
+
+    if (opts.hyde) {
+      tasks.push(
+        (async () => {
+          try {
+            const prompt = `Write a short hypothetical answer (2-3 sentences) to the following question, as if you knew the answer. Do not say "I don't know" — invent plausible content.\n\nQUESTION: ${question}`;
+            const hypothetical = await llm.complete(prompt, {
+              temperature: 0.4,
+              maxTokens: 256,
+            });
+            const text = hypothetical.trim();
+            if (text.length > 0) {
+              const embedding = await this.config.embedding.embed(text);
+              variants.push({ text: question, tag: "hyde", embedding });
+            }
+          } catch {
+            // best-effort; ignore HyDE failures
+          }
+        })(),
+      );
+    }
+
+    await Promise.all(tasks);
+    return variants;
+  }
+
+  /**
+   * Outer Reciprocal Rank Fusion across multiple `retrieve` results — used
+   * when query expansion or HyDE produced more than one variant query. Each
+   * variant contributes its top-K with rank-based scoring; provenance from
+   * inner retrieval is preserved alongside the variant-level tag.
+   */
+  private fuseVariantResults(
+    subResults: Array<{ tag: string; result: RetrievalResult }>,
+    topK: number,
+  ): RecallResult {
+    const RRF_K = 60;
+    const fused = new Map<
+      string,
+      {
+        node: MemoryNode;
+        score: number;
+        variantPathways: Set<string>;
+        innerPathways: Set<string>;
+        pathwayScores: Record<string, number>;
+      }
+    >();
+
+    let totalScanned = 0;
+    for (const { tag, result } of subResults) {
+      totalScanned += result.traversalStats.scanned;
+      for (const [rank, node] of result.nodes.entries()) {
+        const annotated = node as MemoryNode & {
+          _score?: number;
+          _pathways?: string[];
+          _pathwayScores?: Record<string, number>;
+        };
+        let entry = fused.get(node.id);
+        if (!entry) {
+          entry = {
+            node,
+            score: 0,
+            variantPathways: new Set(),
+            innerPathways: new Set(),
+            pathwayScores: {},
+          };
+          fused.set(node.id, entry);
+        }
+        entry.score += 1 / (RRF_K + rank);
+        entry.variantPathways.add(tag);
+        if (annotated._pathways) {
+          for (const p of annotated._pathways) entry.innerPathways.add(p);
+        }
+        if (annotated._pathwayScores) {
+          for (const [name, s] of Object.entries(annotated._pathwayScores)) {
+            // keep the max per pathway across variants
+            entry.pathwayScores[name] = Math.max(
+              entry.pathwayScores[name] ?? 0,
+              s,
+            );
+          }
+        }
+      }
+    }
+
+    const sorted = [...fused.values()].sort((a, b) => b.score - a.score);
+    const memories: RecalledMemory[] = sorted.slice(0, topK).map((entry) => {
+      const n = entry.node;
+      const pathways = [...entry.variantPathways, ...entry.innerPathways];
+      return {
+        id: n.id,
+        at: n.timestamp,
+        during:
+          n.duration && n.duration > 0
+            ? { start: n.timestamp - n.duration, end: n.timestamp }
+            : undefined,
+        userId: n.userId,
+        actor: n.actor,
+        target: n.target,
+        summary: n.payload.summary,
+        description: n.payload.description,
+        tags: n.payload.tags,
+        salienceScore: n.payload.salienceScore,
+        evidence: n.payload.media,
+        score: entry.score,
+        level: n.level,
+        provenance: {
+          pathways,
+          fusedScore: entry.score,
+          pathwayScores: entry.pathwayScores,
+        },
+      };
+    });
+
+    const totalVariants = subResults.length;
+    const confidence = memories.length === 0
+      ? 0
+      : memories.reduce((sum, m) => {
+          const variantHits = (m.provenance?.pathways ?? []).filter((p) =>
+            p === "primary" || p === "hyde" || p.startsWith("expansion:"),
+          ).length;
+          return sum + Math.min(1, variantHits / totalVariants);
+        }, 0) / memories.length;
+
+    return { memories, confidence, totalScanned };
+  }
+
   private onAfterWrite(): void {
     if (this.evolveMode !== "auto") return;
     this.writesSinceEvolve += 1;
@@ -643,6 +921,7 @@ function stripAnnotations(node: MemoryNode): MemoryNode {
 export * from "./types.js";
 export * from "./utils.js";
 export { BM25Index, tokenize as bm25Tokenize } from "./bm25.js";
+export { LLMReranker, parseScores as parseRerankerScores } from "./reranker.js";
 export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";

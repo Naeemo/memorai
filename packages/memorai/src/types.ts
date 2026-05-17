@@ -166,6 +166,33 @@ export interface LLMService {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Reranker Service (cross-encoder layer over fused candidates)
+// ─────────────────────────────────────────────────────────────
+
+export interface RerankDoc {
+  id: string;
+  text: string;
+}
+
+export interface RerankResult {
+  id: string;
+  score: number;
+}
+
+export interface RerankerService {
+  /**
+   * Rescore (query, doc) pairs and return the top-K by relevance.
+   * The returned list is sorted descending by score; docs not in the
+   * returned list are considered filtered out.
+   */
+  rerank: (
+    query: string,
+    docs: RerankDoc[],
+    topK: number,
+  ) => Promise<RerankResult[]>;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Evolution
 // ─────────────────────────────────────────────────────────────
 
@@ -328,6 +355,10 @@ export interface RecallOptions {
   level?: MemoryLevel;
   strategy?: RetrievalStrategy;
   traversalOrder?: TraversalOrder;
+  /** Generate N paraphrases of the question with the configured LLM and fuse their results. Requires MemoraiConfig.llm. */
+  queryExpansion?: number;
+  /** HyDE — generate a hypothetical answer with the LLM, embed it, use as an extra semantic pathway. Requires MemoraiConfig.llm. */
+  hyde?: boolean;
   /** Power user escape hatch — overrides go straight to RetrievalQuery. */
   overrideQuery?: Partial<RetrievalQuery>;
 }
@@ -390,6 +421,12 @@ export interface MemoraiConfig {
   compression?: CompressionService;
   llm?: LLMService;
   extractor?: Extractor;
+  /**
+   * Optional reranker — when set, recall() applies it as a final pass over
+   * the fused top-N to improve precision. See LLMReranker for a built-in
+   * that uses MemoraiConfig.llm.
+   */
+  reranker?: RerankerService;
   evolution?: Partial<EvolutionConfig>;
   agentProfile?: AgentMemoryProfile;
   /** Default actor when Event.actor is omitted. */
