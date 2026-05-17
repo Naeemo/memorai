@@ -172,7 +172,7 @@ const memory = new Memorai({
       salienceBoost: 1.0,
     },
     readPolicy: {
-      defaultLevel: 'event',
+      defaultLevel: 'episode',
       defaultTraversal: 'reverse',
       timeHorizonMs: 86_400_000,
     },

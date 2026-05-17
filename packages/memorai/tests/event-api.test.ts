@@ -365,8 +365,8 @@ describe("Auto-evolve triggers", () => {
     // Give the void-promise evolve a tick to settle.
     await new Promise((r) => setTimeout(r, 10));
 
-    const events = await memory.list({ level: "event" });
-    expect(events.length).toBeGreaterThan(0);
+    const episodes = await memory.list({ level: "episode" });
+    expect(episodes.length).toBeGreaterThan(0);
     await memory.close();
   });
 });

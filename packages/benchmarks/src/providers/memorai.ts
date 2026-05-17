@@ -1,4 +1,5 @@
 import {
+  LLMEventIdentifier,
   LLMExtractor,
   LLMReranker,
   Memorai,
@@ -9,6 +10,7 @@ import {
   type EmbeddingService,
   type Event,
   type EventContent,
+  type EventIdentifier,
   type Extractor,
   type LLMService,
   type RerankerService,
@@ -35,6 +37,15 @@ export interface MemoraiProviderOptions {
   reranker?: "llm" | "none";
   /** Ollama model for the reranker (defaults to the answerer model). */
   rerankerModel?: string;
+  /**
+   * "llm" → wire LLMEventIdentifier so evolve() identifies state /
+   * transition / happening events; "none" (default) → no event layer.
+   * Enabling this adds one LLM call per identification batch (default 30
+   * raw nodes) on top of the extraction cost.
+   */
+  identifier?: "llm" | "none";
+  /** Ollama model for the event identifier (defaults to extractorModel / answererModel). */
+  identifierModel?: string;
   /** Number of paraphrase variants to generate at recall time. */
   queryExpansion?: number;
   /** Enable HyDE — generate hypothetical answer and use its embedding. */
@@ -100,9 +111,21 @@ function pickRecallLLM(opts: MemoraiProviderOptions): LLMService | undefined {
   // The query-expansion / HyDE path needs an LLM. Reuse the answerer
   // model unless an explicit override is set via env.
   if (!opts.queryExpansion && !opts.hyde) return undefined;
-  const model =
-    opts.answererModel ?? process.env.ANSWERER_MODEL ?? "gemma4:31b-cloud";
+  const model = opts.answererModel ?? process.env.ANSWERER_MODEL ?? "gemma4:31b-cloud";
   return makeOllamaLLMService(model);
+}
+
+function pickIdentifier(opts: MemoraiProviderOptions): EventIdentifier | undefined {
+  if (opts.identifier !== "llm") return undefined;
+  const model =
+    opts.identifierModel ??
+    process.env.IDENTIFIER_MODEL ??
+    opts.extractorModel ??
+    process.env.EXTRACTOR_MODEL ??
+    opts.answererModel ??
+    process.env.ANSWERER_MODEL ??
+    "gemma4:31b-cloud";
+  return new LLMEventIdentifier({ llm: makeOllamaLLMService(model) });
 }
 
 /**
@@ -139,6 +162,7 @@ export class MemoraiProvider implements MemoryProvider {
       embedding: makeEmbedder(this.opts),
       extractor: pickExtractor(this.opts),
       reranker: pickReranker(this.opts),
+      identifier: pickIdentifier(this.opts),
       llm: pickRecallLLM(this.opts),
       // Benchmark needs deterministic evolve points — flush manually per session.
       evolution: { mode: "manual" },

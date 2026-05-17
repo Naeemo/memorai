@@ -2,16 +2,22 @@ import { EvolutionEngine } from "./evolution.js";
 import { RetrievalEngine } from "./retrieval.js";
 import { generateId } from "./utils.js";
 import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction/index.js";
+import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
   CompressionService,
   Event,
+  EventIdentifier,
+  EventStore,
   Extractor,
+  IdentifiedEvent,
   ListOptions,
   MediaPayload,
   MemoraiConfig,
   MemoryAnnotations,
+  MemoryEvent,
+  MemoryLevel,
   MemoryNode,
   Modality,
   NodePatch,
@@ -32,12 +38,12 @@ const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   agentId: "default",
   role: "reasoning",
   writePolicy: {
-    levels: ["segment", "atomic_action", "event"],
+    levels: ["segment", "atomic_action", "episode"],
     modalities: ["text", "vision", "audio", "multimodal"],
     salienceBoost: 1,
   },
   readPolicy: {
-    defaultLevel: "event",
+    defaultLevel: "episode",
     defaultTraversal: "reverse",
     timeHorizonMs: 86400000,
   },
@@ -70,6 +76,8 @@ export class Memorai {
   private readonly evolution: EvolutionEngine;
   private readonly agentProfile: AgentMemoryProfile;
   private readonly extractor: Extractor;
+  private readonly eventStore: EventStore;
+  private readonly identifier?: EventIdentifier;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
   private writesSinceEvolve = 0;
@@ -91,6 +99,13 @@ export class Memorai {
       this.extractor = new LLMExtractor({ llm: config.llm });
     } else {
       this.extractor = new LightExtractor();
+    }
+
+    this.eventStore = config.events ?? new InMemoryEventStore();
+    if (config.identifier) {
+      this.identifier = config.identifier;
+    } else if (config.llm) {
+      this.identifier = new LLMEventIdentifier({ llm: config.llm });
     }
 
     if (this.evolveMode === "auto" && this.triggers.intervalMs && this.triggers.intervalMs > 0) {
@@ -167,32 +182,29 @@ export class Memorai {
    * and the results are fused via outer Reciprocal Rank Fusion. Each variant
    * shows up as a separate pathway in the final memory's `provenance`.
    *
+   * When an `EventIdentifier` is configured, recall also runs in parallel
+   * over MemoryEvents (state / transition / happening) and outer-fuses the
+   * event-level hits with the raw-node hits via RRF. Set
+   * `opts.includeEvents = false` to disable.
+   *
    * When `MemoraiConfig.reranker` is set, a final reranker pass refines the
    * top-N candidates for precision. Both expansion and reranking are
    * opt-in and gracefully no-op when their dependencies aren't configured.
    */
   async recall(question: string, opts: RecallOptions = {}): Promise<RecallResult> {
-    const variants = await this.expandRecallQueries(question, opts);
     const topK = opts.topK ?? 10;
     // Pull more candidates than topK so the optional reranker has room
     // to reorder. Cap at 3× topK to keep the LLM rerank call bounded.
     const preRerankTopK = this.config.reranker ? Math.min(topK * 3, 30) : topK;
 
-    let preRerank: RecallResult;
-    if (variants.length === 1) {
-      const query = this.buildRecallQuery(question, { ...opts, topK: preRerankTopK });
-      const result = await this.retrieve(query);
-      preRerank = this.toRecallResult(result);
-    } else {
-      const subResults = await Promise.all(
-        variants.map((v) => {
-          const q = this.buildRecallQuery(v.text, { ...opts, topK: preRerankTopK });
-          if (v.embedding) q.embedding = v.embedding;
-          return this.retrieve(q).then((r) => ({ tag: v.tag, result: r }));
-        }),
-      );
-      preRerank = this.fuseVariantResults(subResults, preRerankTopK);
-    }
+    const eventsEnabled = opts.includeEvents !== false && this.identifier !== undefined;
+
+    const [nodeResult, eventMemories] = await Promise.all([
+      this.recallNodes(question, opts, preRerankTopK),
+      eventsEnabled ? this.recallEvents(question, opts, preRerankTopK) : Promise.resolve([]),
+    ]);
+
+    const preRerank = this.mergeNodeAndEventResults(nodeResult, eventMemories, preRerankTopK);
 
     if (!this.config.reranker || preRerank.memories.length === 0) {
       return {
@@ -203,6 +215,234 @@ export class Memorai {
     }
 
     return this.applyReranker(question, preRerank, topK);
+  }
+
+  private async recallNodes(
+    question: string,
+    opts: RecallOptions,
+    preRerankTopK: number,
+  ): Promise<RecallResult> {
+    const variants = await this.expandRecallQueries(question, opts);
+
+    if (variants.length === 1) {
+      const query = this.buildRecallQuery(question, { ...opts, topK: preRerankTopK });
+      const result = await this.retrieve(query);
+      return this.toRecallResult(result);
+    }
+
+    const subResults = await Promise.all(
+      variants.map((v) => {
+        const q = this.buildRecallQuery(v.text, { ...opts, topK: preRerankTopK });
+        if (v.embedding) q.embedding = v.embedding;
+        return this.retrieve(q).then((r) => ({ tag: v.tag, result: r }));
+      }),
+    );
+    return this.fuseVariantResults(subResults, preRerankTopK);
+  }
+
+  /**
+   * Event-level recall. Runs two pathways in parallel — semantic (embedding
+   * cosine over MemoryEvent.embedding) and sparse (BM25 over description) —
+   * and fuses them via RRF. Filters by valid-time so superseded state
+   * events stay out unless explicitly requested.
+   */
+  private async recallEvents(
+    question: string,
+    opts: RecallOptions,
+    topK: number,
+  ): Promise<RecalledMemory[]> {
+    if (!question) return [];
+
+    const excludeInvalidated = opts.excludeInvalidatedEvents !== false;
+    const eventQueryOpts = {
+      userId: opts.userId,
+      validAt: opts.timeRange?.end ?? Date.now(),
+      excludeInvalidated,
+      topK: topK * 2,
+    };
+
+    const queryEmbedding = await this.config.embedding.embed(question);
+
+    const [semanticHits, textHits] = await Promise.all([
+      this.eventStore.queryEventsByEmbedding(queryEmbedding, eventQueryOpts),
+      this.eventStore.queryEventsByText(question, eventQueryOpts),
+    ]);
+
+    const RRF_K = 60;
+    const fused = new Map<
+      string,
+      {
+        event: MemoryEvent;
+        score: number;
+        pathways: Set<string>;
+        pathwayScores: Record<string, number>;
+      }
+    >();
+
+    for (const [rank, event] of semanticHits.entries()) {
+      const entry = fused.get(event.id) ?? {
+        event,
+        score: 0,
+        pathways: new Set<string>(),
+        pathwayScores: {},
+      };
+      entry.score += 1 / (RRF_K + rank);
+      entry.pathways.add("event:semantic");
+      entry.pathwayScores["event:semantic"] = 1 / (RRF_K + rank);
+      fused.set(event.id, entry);
+    }
+
+    for (const [rank, event] of textHits.entries()) {
+      const entry = fused.get(event.id) ?? {
+        event,
+        score: 0,
+        pathways: new Set<string>(),
+        pathwayScores: {},
+      };
+      entry.score += 1 / (RRF_K + rank);
+      entry.pathways.add("event:bm25");
+      entry.pathwayScores["event:bm25"] = 1 / (RRF_K + rank);
+      fused.set(event.id, entry);
+    }
+
+    // Honor opts.timeRange.start as well — semantic / BM25 queries returned
+    // candidates filtered only by validAt (which is timeRange.end). Drop
+    // events whose occurredAt falls outside the requested window.
+    let candidates = [...fused.values()];
+    if (opts.timeRange) {
+      const { start, end } = opts.timeRange;
+      candidates = candidates.filter(
+        (c) => c.event.occurredAt >= start && c.event.occurredAt <= end,
+      );
+    }
+
+    const sorted = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
+
+    // Touch lastAccessed for surfaced events. Fire-and-forget; failures
+    // here should not block recall.
+    const now = Date.now();
+    void Promise.all(
+      sorted.map((e) => {
+        e.event.meta.lastAccessed = now;
+        e.event.meta.accessCount += 1;
+        return this.eventStore.putEvent(e.event);
+      }),
+    ).catch(() => {});
+
+    return sorted.map(({ event, score, pathways, pathwayScores }) => ({
+      id: event.id,
+      at: event.occurredAt,
+      userId: event.userId,
+      actor: event.actor,
+      summary: event.description,
+      tags: event.topics,
+      salienceScore: event.confidence ?? 0.5,
+      score,
+      // Event-derived hits don't sit on the HME level axis; pick the
+      // source-segment level as a honest provenance signal and rely on
+      // `eventKind` to mark the layer.
+      level: "segment" as MemoryLevel,
+      eventKind: event.kind,
+      sourceNodeIds: event.sourceNodeIds,
+      provenance: {
+        pathways: [...pathways],
+        fusedScore: score,
+        pathwayScores,
+      },
+    }));
+  }
+
+  /**
+   * Outer RRF fusion between node-level recall and event-level recall. Each
+   * source ranks its hits; we fuse by id (so the same memory surfaced from
+   * both routes gets credit).
+   *
+   * Event memories typically carry richer canonical descriptions than the
+   * raw nodes that backed them, so we dedupe: when an event surfaces with
+   * `sourceNodeIds = [A, B]`, any raw-node hit with id A or B is dropped
+   * to free its topK slot for distinct information.
+   */
+  private mergeNodeAndEventResults(
+    nodeResult: RecallResult,
+    eventMemories: RecalledMemory[],
+    topK: number,
+  ): RecallResult {
+    if (eventMemories.length === 0) {
+      return {
+        memories: nodeResult.memories.slice(0, topK),
+        confidence: nodeResult.confidence,
+        totalScanned: nodeResult.totalScanned,
+      };
+    }
+
+    // Collect raw-node IDs covered by surfaced events. Those node hits are
+    // redundant — the event description is the canonical version.
+    const coveredByEvent = new Set<string>();
+    for (const m of eventMemories) {
+      for (const sid of m.sourceNodeIds ?? []) coveredByEvent.add(sid);
+    }
+
+    const RRF_K = 60;
+    const merged = new Map<
+      string,
+      {
+        memory: RecalledMemory;
+        score: number;
+        pathways: Set<string>;
+        pathwayScores: Record<string, number>;
+      }
+    >();
+
+    let nodeRank = 0;
+    for (const m of nodeResult.memories) {
+      if (coveredByEvent.has(m.id)) continue; // dedupe vs surfaced events
+      const inc = 1 / (RRF_K + nodeRank);
+      merged.set(m.id, {
+        memory: m,
+        score: inc,
+        pathways: new Set(m.provenance?.pathways ?? []),
+        pathwayScores: { ...(m.provenance?.pathwayScores ?? {}) },
+      });
+      nodeRank += 1;
+    }
+
+    for (const [rank, m] of eventMemories.entries()) {
+      const inc = 1 / (RRF_K + rank);
+      const existing = merged.get(m.id);
+      if (existing) {
+        existing.score += inc;
+        for (const p of m.provenance?.pathways ?? []) existing.pathways.add(p);
+        for (const [k, v] of Object.entries(m.provenance?.pathwayScores ?? {})) {
+          existing.pathwayScores[k] = Math.max(existing.pathwayScores[k] ?? 0, v);
+        }
+      } else {
+        merged.set(m.id, {
+          memory: m,
+          score: inc,
+          pathways: new Set(m.provenance?.pathways ?? []),
+          pathwayScores: { ...(m.provenance?.pathwayScores ?? {}) },
+        });
+      }
+    }
+
+    const sorted = [...merged.values()].sort((a, b) => b.score - a.score);
+    const memories: RecalledMemory[] = sorted.slice(0, topK).map((entry) => ({
+      ...entry.memory,
+      score: entry.score,
+      provenance: {
+        pathways: [...entry.pathways],
+        fusedScore: entry.score,
+        pathwayScores: entry.pathwayScores,
+      },
+    }));
+
+    const totalScanned = nodeResult.totalScanned + eventMemories.length;
+    const confidence =
+      memories.length === 0
+        ? 0
+        : memories.reduce((s, m) => s + Math.min(1, m.score), 0) / memories.length;
+
+    return { memories, confidence, totalScanned };
   }
 
   /** Recall events where the named actor is the producer. */
@@ -452,12 +692,23 @@ export class Memorai {
   /**
    * @internal Manually trigger Level-2 evolution. Normally auto-triggered.
    * Multiple concurrent calls coalesce — only one evolution runs at a time.
+   *
+   * When an EventIdentifier is configured, evolution also runs event
+   * identification over un-identified segment nodes — turning the raw
+   * timeline into MemoryEvents (state / transition / happening).
    */
   evolve(): Promise<void> {
     if (this.evolveInFlight) return this.evolveInFlight;
     const p = (async () => {
       try {
         await this.evolution.evolve();
+        if (this.identifier) {
+          try {
+            await this.identifyRecent();
+          } catch (err) {
+            console.error("[Memorai] event identification failed:", err);
+          }
+        }
         this.writesSinceEvolve = 0;
         this.stmCount = 0;
         this.clearIdleTimer();
@@ -467,6 +718,222 @@ export class Memorai {
     })();
     this.evolveInFlight = p;
     return p;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // MemoryEvents
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Run event identification over un-identified segment nodes. Returns the
+   * newly identified MemoryEvents. Idempotent: nodes already processed are
+   * skipped. Normally called from `evolve()`; expose for explicit control.
+   */
+  async identifyRecent(
+    opts: { batchSize?: number; maxBatches?: number } = {},
+  ): Promise<MemoryEvent[]> {
+    if (!this.identifier) return [];
+    const batchSize = opts.batchSize ?? 30;
+    const maxBatches = opts.maxBatches ?? Number.POSITIVE_INFINITY;
+    const all = await this.config.storage.listAll({ level: "segment" });
+    const unidentified = all
+      .filter((n) => n.meta.identifiedAt === undefined)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    if (unidentified.length === 0) return [];
+
+    const out: MemoryEvent[] = [];
+    let batches = 0;
+    for (let i = 0; i < unidentified.length && batches < maxBatches; i += batchSize) {
+      const batch = unidentified.slice(i, i + batchSize);
+      const events = await this.identifyBatch(batch);
+      out.push(...events);
+      batches += 1;
+    }
+    return out;
+  }
+
+  /** Fetch a single MemoryEvent by id. */
+  async getEvent(id: string): Promise<MemoryEvent | null> {
+    return this.eventStore.getEvent(id);
+  }
+
+  /** List MemoryEvents with optional filtering. */
+  async listEvents(
+    opts: {
+      userId?: string;
+      kind?: MemoryEvent["kind"];
+      validAt?: number;
+      excludeInvalidated?: boolean;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<MemoryEvent[]> {
+    return this.eventStore.listEvents(opts);
+  }
+
+  private async identifyBatch(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
+    if (!this.identifier) return [];
+
+    const relatedEvents = await this.fetchRelatedEvents(nodes);
+
+    let identified: IdentifiedEvent[] = [];
+    try {
+      identified = await this.identifier.identify({
+        nodes,
+        relatedEvents,
+        embedding: this.config.embedding,
+        llm: this.config.llm,
+        now: () => Date.now(),
+      });
+    } catch (err) {
+      console.error("[Memorai] identifier.identify failed:", err);
+    }
+
+    const produced: MemoryEvent[] = [];
+    try {
+      // Per-event try/catch so one bad persist doesn't take down the batch.
+      for (const ident of identified) {
+        try {
+          const event = await this.persistIdentifiedEvent(ident, nodes);
+          if (event) produced.push(event);
+        } catch (err) {
+          console.error("[Memorai] persistIdentifiedEvent failed:", err);
+        }
+      }
+    } finally {
+      // Always mark batch nodes as identified — re-running the same batch
+      // would otherwise produce duplicate events for the ones that succeeded.
+      const stamp = Date.now();
+      for (const node of nodes) {
+        node.meta.identifiedAt = stamp;
+        try {
+          await this.config.storage.put(node);
+        } catch (err) {
+          console.error("[Memorai] mark identifiedAt failed:", err);
+        }
+      }
+    }
+
+    return produced;
+  }
+
+  /**
+   * Pull events relevant to the batch for supersede context. Prefers
+   * participant overlap (gathered from actor / target / meta.participants —
+   * the actual entity fields, NOT general tags) over "most recent N". Falls
+   * back to the recent-N heuristic when the batch has no usable participant
+   * signal.
+   *
+   * Queries are issued in parallel per (userId, participant) pair and merged
+   * by id.
+   */
+  private async fetchRelatedEvents(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
+    const userIds = new Set<string | undefined>(nodes.map((n) => n.userId));
+    const participants = new Set<string>();
+    for (const n of nodes) {
+      if (n.actor) participants.add(n.actor.toLowerCase());
+      if (n.target) participants.add(n.target.toLowerCase());
+      if (n.meta.participants) {
+        for (const p of n.meta.participants) {
+          if (p) participants.add(p.toLowerCase());
+        }
+      }
+    }
+
+    const PER_PARTICIPANT_LIMIT = 10;
+
+    const tasks: Promise<MemoryEvent[]>[] = [];
+    for (const userId of userIds) {
+      if (participants.size === 0) {
+        // No participant signal — fall back to most recent for this user.
+        tasks.push(
+          this.eventStore.listEvents({
+            userId,
+            orderBy: "occurredAt",
+            order: "desc",
+            limit: 50,
+            excludeInvalidated: true,
+          }),
+        );
+        continue;
+      }
+      for (const p of participants) {
+        tasks.push(
+          this.eventStore.queryEventsByParticipant(p, {
+            userId,
+            orderBy: "occurredAt",
+            order: "desc",
+            limit: PER_PARTICIPANT_LIMIT,
+            excludeInvalidated: true,
+          }),
+        );
+      }
+    }
+
+    const results = await Promise.all(tasks);
+    const seen = new Map<string, MemoryEvent>();
+    for (const batch of results) {
+      for (const ev of batch) seen.set(ev.id, ev);
+    }
+    return [...seen.values()];
+  }
+
+  private async persistIdentifiedEvent(
+    ident: IdentifiedEvent,
+    batch: MemoryNode[],
+  ): Promise<MemoryEvent | null> {
+    if (!this.identifier) return null;
+
+    const anchorNode = batch.find((n) => ident.sourceNodeIds.includes(n.id)) ?? batch[0];
+    if (!anchorNode) return null;
+
+    const indexable = [ident.description, ...ident.participants, ...ident.topics]
+      .filter(Boolean)
+      .join(" — ");
+    const embedding = indexable ? await this.config.embedding.embed(indexable) : undefined;
+
+    const event: MemoryEvent = {
+      id: generateId(),
+      kind: ident.kind,
+      description: ident.description,
+      participants: ident.participants,
+      topics: ident.topics,
+      occurredAt: ident.occurredAt,
+      sourceNodeIds: ident.sourceNodeIds,
+      userId: anchorNode.userId,
+      actor: anchorNode.actor,
+      embedding,
+      confidence: ident.confidence,
+      identifierVersion: this.identifier.version,
+      meta: {
+        identifiedAt: Date.now(),
+        accessCount: 0,
+      },
+    };
+
+    if (ident.kind === "state" && ident.supersedes && ident.supersedes.length > 0) {
+      const validSupersedes: string[] = [];
+      for (const oldId of ident.supersedes) {
+        const old = await this.eventStore.getEvent(oldId);
+        if (!old) continue;
+        // Defense-in-depth against a misbehaving identifier: never let
+        // an event supersede another user's record. fetchRelatedEvents
+        // already scopes context per userId, but downstream callers can
+        // pass arbitrary ids — refuse cross-tenant invalidation here too.
+        if (old.userId !== event.userId) continue;
+        validSupersedes.push(oldId);
+        if (old.invalidatedAt === undefined) {
+          old.invalidatedAt = event.occurredAt;
+          await this.eventStore.putEvent(old);
+        }
+      }
+      if (validSupersedes.length > 0) {
+        event.supersedes = validSupersedes;
+      }
+    }
+
+    await this.eventStore.putEvent(event);
+    return event;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -628,7 +1095,7 @@ export class Memorai {
     return event;
   }
 
-  /** Close all resources (storage, background timers, etc.). */
+  /** Close all resources (storage, event store, background timers, etc.). */
   async close(): Promise<void> {
     this.clearIdleTimer();
     if (this.intervalTimer) {
@@ -642,6 +1109,7 @@ export class Memorai {
         console.error("[Memorai] evolve on close failed:", err);
       }
     }
+    await this.eventStore.closeEventStore();
     await this.config.storage.close();
   }
 
@@ -1057,6 +1525,7 @@ export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";
 export { RetrievalEngine } from "./retrieval.js";
+export { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 export {
   BrowserImageCompressor,
   PassthroughCompressor,

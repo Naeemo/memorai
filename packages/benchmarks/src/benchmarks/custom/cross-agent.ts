@@ -22,7 +22,7 @@ export async function runCrossAgentBenchmark(): Promise<BenchmarkResult> {
         agentId: m.agent,
         role: m.agent === "alpha" ? "reasoning" : "proactive",
         writePolicy: {
-          levels: ["segment", "atomic_action", "event"],
+          levels: ["segment", "atomic_action", "episode"],
           modalities: ["text"],
           salienceBoost: 1,
         },
@@ -53,7 +53,7 @@ export async function runCrossAgentBenchmark(): Promise<BenchmarkResult> {
         agentId: agent,
         role: agent === "alpha" ? "reasoning" : "proactive",
         writePolicy: {
-          levels: ["segment", "atomic_action", "event"],
+          levels: ["segment", "atomic_action", "episode"],
           modalities: ["text"],
           salienceBoost: 1,
         },

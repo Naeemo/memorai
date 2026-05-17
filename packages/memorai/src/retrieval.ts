@@ -308,7 +308,7 @@ export class RetrievalEngine {
       case "temporal":
         results = results.map((n) => {
           let boost = 1;
-          if (n.level === "event") boost *= 1.3;
+          if (n.level === "episode") boost *= 1.3;
           const ageHours = (Date.now() - n.timestamp) / 3600000;
           boost *= Math.max(0.5, 1 - ageHours / 168);
           return { ...n, _score: n._score * boost };
@@ -317,7 +317,7 @@ export class RetrievalEngine {
       case "inferential":
         results = results.map((n) => {
           let boost = 1;
-          if (n.level === "event") boost *= 1.4;
+          if (n.level === "episode") boost *= 1.4;
           if (n.childrenIds && n.childrenIds.length > 2) boost *= 1.2;
           return { ...n, _score: n._score * boost };
         });

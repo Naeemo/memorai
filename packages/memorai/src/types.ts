@@ -9,7 +9,7 @@
 // Shared shapes
 // ─────────────────────────────────────────────────────────────
 
-export type MemoryLevel = "segment" | "atomic_action" | "event";
+export type MemoryLevel = "segment" | "atomic_action" | "episode";
 export type Modality = "text" | "vision" | "audio" | "multimodal";
 
 export interface MediaPayload {
@@ -92,6 +92,8 @@ export interface MemoryMeta {
   lastAccessed?: number;
   /** Number of times this node has been retrieved. */
   accessCount: number;
+  /** Unix ms when EventIdentifier ran on this node (undefined = not yet). */
+  identifiedAt?: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -175,6 +177,110 @@ export interface WritePayload {
 
 export interface WriteOptions {
   skipEmbedding?: boolean; // if user already provided embedding
+}
+
+// ─────────────────────────────────────────────────────────────
+// MemoryEvent — semantic event layer (Tier 2)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Three kinds of semantic events identified from raw MemoryNodes:
+ *   - "state"      — an assertion that persists (e.g. "Alice likes apples"),
+ *                    can be superseded by a newer state.
+ *   - "transition" — a change from one state to another, with cause/trigger
+ *                    (e.g. "Alice had an allergic reaction after eating nuts").
+ *   - "happening"  — a discrete occurrence anchored in time (e.g. "Wed evening
+ *                    emergency meeting Bob attended").
+ */
+export type MemoryEventKind = "state" | "transition" | "happening";
+
+export interface MemoryEvent {
+  id: string;
+  kind: MemoryEventKind;
+  /** Natural-language description — the canonical "what happened" sentence. */
+  description: string;
+  /** Entities involved (canonical names). */
+  participants: string[];
+  /** Tags / topics / categories. */
+  topics: string[];
+  /** When this event occurred (for happenings/transitions) or when this state
+   *  was first observed to be true (for state events). Unix ms. */
+  occurredAt: number;
+  /** For state events: when this assertion was invalidated by a newer one.
+   *  Undefined means "still believed true". */
+  invalidatedAt?: number;
+  /** IDs of MemoryEvents this one supersedes (typically when this is a state
+   *  event that updates an older state). */
+  supersedes?: string[];
+  /** IDs of raw MemoryNodes this event was identified from. */
+  sourceNodeIds: string[];
+  /** Multi-tenant scope. Mirrors the originating raw node's userId. */
+  userId?: string;
+  /** Free-form actor label (who produced the underlying events). */
+  actor?: string;
+  /** Embedding over description + participants + topics. */
+  embedding?: number[];
+  /** Identifier's confidence in this extraction, [0, 1]. */
+  confidence?: number;
+  /** Free-form version string of the EventIdentifier that produced this. */
+  identifierVersion?: string;
+  meta: {
+    /** When this event was first identified. */
+    identifiedAt: number;
+    /** Last time recall touched this event. */
+    lastAccessed?: number;
+    /** How many times recall has surfaced this event. */
+    accessCount: number;
+  };
+}
+
+export type MemoryEventOrderBy = "occurredAt" | "lastAccessed" | "confidence";
+
+export interface EventQueryOpts {
+  limit?: number;
+  offset?: number;
+  orderBy?: MemoryEventOrderBy;
+  order?: Order;
+  userId?: string;
+  /** Filter by kind. */
+  kind?: MemoryEventKind;
+  /** Filter to events that are still believed valid at this point in time
+   *  (invalidatedAt > validAt OR invalidatedAt undefined). */
+  validAt?: number;
+  /** Drop events with invalidatedAt set, regardless of validAt. Useful for
+   *  "give me everything the agent currently believes" queries. */
+  excludeInvalidated?: boolean;
+}
+
+/**
+ * Event-level storage. Distinct from `StorageAdapter` (which stores raw
+ * MemoryNodes) so that backends can pick their own physical layout. A default
+ * in-memory implementation ships with the package and is wired automatically
+ * when `MemoraiConfig.events` is omitted.
+ */
+export interface EventStore {
+  putEvent: (event: MemoryEvent) => Promise<void>;
+  getEvent: (id: string) => Promise<MemoryEvent | null>;
+  deleteEvent: (id: string) => Promise<void>;
+  batchPutEvents: (events: MemoryEvent[]) => Promise<void>;
+  queryEventsByEmbedding: (
+    embedding: number[],
+    opts?: EventQueryOpts & { topK?: number },
+  ) => Promise<MemoryEvent[]>;
+  queryEventsByText: (
+    text: string,
+    opts?: EventQueryOpts & { topK?: number },
+  ) => Promise<MemoryEvent[]>;
+  queryEventsByParticipant: (participant: string, opts?: EventQueryOpts) => Promise<MemoryEvent[]>;
+  queryEventsByTopic: (topic: string, opts?: EventQueryOpts) => Promise<MemoryEvent[]>;
+  /** Events whose occurredAt falls in [start, end]. */
+  queryEventsByTimeRange: (
+    start: number,
+    end: number,
+    opts?: EventQueryOpts,
+  ) => Promise<MemoryEvent[]>;
+  listEvents: (opts?: EventQueryOpts) => Promise<MemoryEvent[]>;
+  closeEventStore: () => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -292,7 +398,7 @@ export interface EvolutionConfig {
   semanticMergeThreshold: number; // default: 0.85
   temporalGapThresholdMs: number; // default: 30000
   sceneSimilarityThreshold: number; // default: 0.80
-  eventTimeWindowMs: number; // default: 300000
+  episodeTimeWindowMs: number; // default: 300000
   stmMaxSize: number; // default: 1000
   /** "auto" runs triggers; "manual" requires explicit `evolve()` calls. */
   mode: "auto" | "manual";
@@ -421,6 +527,47 @@ export interface Extractor {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Event Identification — turns raw nodes into MemoryEvents
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * A new event the EventIdentifier wants to insert, optionally with a list of
+ * pre-existing event IDs it supersedes. The Memorai pipeline assigns the
+ * actual id + meta on persist.
+ */
+export interface IdentifiedEvent {
+  kind: MemoryEventKind;
+  description: string;
+  participants: string[];
+  topics: string[];
+  occurredAt: number;
+  sourceNodeIds: string[];
+  /** When this is a state event that replaces older ones, the identifier
+   *  populates this list so the pipeline can mark them invalidated. */
+  supersedes?: string[];
+  confidence?: number;
+}
+
+export interface IdentifyContext {
+  /** Raw nodes that are candidates for identification (a recent batch). */
+  nodes: MemoryNode[];
+  /** Existing related MemoryEvents in scope — given to the LLM as context
+   *  so it can decide INSERT vs SUPERSEDE on state assertions. */
+  relatedEvents: MemoryEvent[];
+  embedding: EmbeddingService;
+  llm?: LLMService;
+  now(): number;
+  signal?: AbortSignal;
+}
+
+export interface EventIdentifier {
+  /** Free-form version string persisted on every produced event. */
+  readonly version: string;
+  /** Identify semantic events from a batch of raw nodes. */
+  identify: (ctx: IdentifyContext) => Promise<IdentifiedEvent[]>;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Recall API (public)
 // ─────────────────────────────────────────────────────────────
 
@@ -438,6 +585,13 @@ export interface RecallOptions {
   queryExpansion?: number;
   /** HyDE — generate a hypothetical answer with the LLM, embed it, use as an extra semantic pathway. Requires MemoraiConfig.llm. */
   hyde?: boolean;
+  /** Disable event-level recall even if an EventIdentifier is configured.
+   *  Defaults to true (event recall on) when an identifier is set. */
+  includeEvents?: boolean;
+  /** Drop events that have been superseded (invalidatedAt set) from the
+   *  event-level pathway. Defaults to true — recall returns what the agent
+   *  currently believes, not the full audit trail. */
+  excludeInvalidatedEvents?: boolean;
   /** Power user escape hatch — overrides go straight to RetrievalQuery. */
   overrideQuery?: Partial<RetrievalQuery>;
 }
@@ -465,6 +619,20 @@ export interface RecalledMemory {
   evidence?: MediaPayload;
   score: number;
   level: MemoryLevel;
+  /**
+   * Set when this hit was derived from the MemoryEvent layer (Tier 2.5)
+   * rather than from a raw MemoryNode. The semantic-event surface returns
+   * canonical state assertions / transitions / happenings whose schema is
+   * different from raw nodes; callers can branch on `eventKind` to render
+   * differently or filter event-derived hits in or out.
+   */
+  eventKind?: MemoryEventKind;
+  /**
+   * For event-derived hits, the raw MemoryNode IDs the event was
+   * identified from. Used by recall fusion to dedupe redundant node-level
+   * hits whose content already informed a surfaced event.
+   */
+  sourceNodeIds?: readonly string[];
   /** Multi-pathway retrieval evidence — which routes found this memory. */
   provenance?: RecalledMemoryProvenance;
 }
@@ -531,6 +699,18 @@ export interface MemoraiConfig {
   compression?: CompressionService;
   llm?: LLMService;
   extractor?: Extractor;
+  /**
+   * Event identification layer. Turns raw MemoryNodes into MemoryEvents
+   * (state / transition / happening) during `evolve()`. When omitted along
+   * with `events`, the event-identification path is disabled and recall
+   * falls back to raw-node retrieval only.
+   */
+  identifier?: EventIdentifier;
+  /**
+   * Event-level storage. Defaults to an in-memory implementation when
+   * omitted. Set when you want events to persist alongside raw nodes.
+   */
+  events?: EventStore;
   /**
    * Optional reranker — when set, recall() applies it as a final pass over
    * the fused top-N to improve precision. See LLMReranker for a built-in

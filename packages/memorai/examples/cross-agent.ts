@@ -28,12 +28,12 @@ const reasoningAgent = new Memorai({
     agentId: "reasoning-bot",
     role: "reasoning",
     writePolicy: {
-      levels: ["segment", "atomic_action", "event"],
+      levels: ["segment", "atomic_action", "episode"],
       modalities: ["text", "vision"],
       salienceBoost: 1,
     },
     readPolicy: {
-      defaultLevel: "event", // Sees abstract events
+      defaultLevel: "episode", // Sees abstract episodes
       defaultTraversal: "reverse", // Recent events first
       timeHorizonMs: 7 * 24 * 60 * 60 * 1000, // 1 week
     },
@@ -137,7 +137,7 @@ async function scenario() {
   console.log(`  ${all.length} total nodes`);
   console.log(`  ${all.filter((n) => n.level === "segment").length} segments`);
   console.log(`  ${all.filter((n) => n.level === "atomic_action").length} atomic actions`);
-  console.log(`  ${all.filter((n) => n.level === "event").length} events`);
+  console.log(`  ${all.filter((n) => n.level === "episode").length} episodes`);
 
   await reasoningAgent.close();
   await proactiveAgent.close();
