@@ -21,7 +21,7 @@ interface CompressionService {
 
 Memorai calls these methods automatically when:
 
-- The incoming `WritePayload.payload.media` contains raw data (not a reference string), **and**
+- The incoming `WritePayload.raw.media` contains raw data (not a reference string), **and**
 - A `CompressionService` is configured.
 
 The returned references replace the raw blobs before storage.

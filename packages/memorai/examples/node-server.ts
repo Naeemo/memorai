@@ -40,15 +40,20 @@ const server = createServer(async (req, res) => {
     // POST /write — store a memory
     if (req.method === "POST" && url.pathname === "/write") {
       const body = await readBody(req);
+      const summary = String(body.summary ?? "");
       const node = await memory.write({
-        payload: {
-          summary: body.summary,
-          description: body.description,
-          tags: body.tags ?? [],
-          salienceScore: body.salience ?? 0.5,
-          modality: body.modality ?? ["text"],
+        raw: {
+          content: { kind: "observation", text: summary },
+          text: summary,
         },
-        meta: { agentRole: body.agentRole ?? "default" },
+        annotations: {
+          summary,
+          description: body.description as string | undefined,
+          tags: (body.tags as string[]) ?? [],
+          salienceScore: (body.salience as number) ?? 0.5,
+          modality: (body.modality as ("text" | "vision" | "audio" | "multimodal")[]) ?? ["text"],
+        },
+        meta: { agentRole: (body.agentRole as string) ?? "default" },
       });
       return send(200, { id: node.id });
     }
@@ -80,7 +85,7 @@ const server = createServer(async (req, res) => {
         count: result.nodes.length,
         events: result.nodes.map((n) => ({
           time: new Date(n.timestamp).toISOString(),
-          summary: n.payload.summary,
+          summary: n.annotations.summary ?? n.raw.text ?? "",
           level: n.level,
         })),
       });

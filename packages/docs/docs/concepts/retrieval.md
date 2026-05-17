@@ -84,6 +84,8 @@ The candidate set is built from multiple sources at once. The re-rankers also ru
 
 ## Example
 
+The internal `retrieve()` surface returns raw `MemoryNode`s:
+
 ```typescript
 const result = await memory.retrieve({
   text: 'What was I working on in the editor?',
@@ -92,8 +94,20 @@ const result = await memory.retrieve({
   topK: 5,
 });
 
-console.log(result.nodes.map(n => n.payload.summary));
+console.log(result.nodes.map((n) => n.annotations.summary ?? n.raw.text ?? ''));
 // → ['User opened the code editor and started typing', ...]
 console.log(result.traversalStats);
 // → { scanned: 412, matched: 18, pruned: 7, timeMs: 23 }
+```
+
+Application code should prefer the public `recall()` API, which wraps the same engine, fuses multiple variant queries, and returns flattened `RecalledMemory` objects with `provenance`:
+
+```typescript
+const result = await memory.recall('What was I working on in the editor?', {
+  topK: 5,
+  traversalOrder: 'reverse',
+});
+for (const m of result.memories) {
+  console.log(m.summary, m.provenance?.pathways);
+}
 ```
