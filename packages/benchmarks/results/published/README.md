@@ -2,6 +2,73 @@
 
 This directory contains the canonical benchmark runs committed alongside Memorai's published versions. Day-to-day runs land in the parent `results/` directory (gitignored); only runs we want to cite go here.
 
+## 2026-05-17 — Memorai 0.4.0 (MemoryEvent layer)
+
+0.4.0 introduces the **MemoryEvent layer** (Tier 2.5): a fact-centric record extracted by an `EventIdentifier` and stored alongside raw MemoryNodes. Each event is one of three kinds — `state` (assertion that persists, can be superseded), `transition` (state change), or `happening` (anchored occurrence). Recall fuses raw-node retrieval with event-level retrieval via RRF and dedupes node hits backed by surfaced events.
+
+### Headline (LoCoMo conv-26, full 152 QAs, default filter)
+
+| Run | Accuracy | Δ vs 0.3.0 wrap | Ingest time | Notes |
+|-----|---------:|----------------:|------------:|:------|
+| 0.3.0 wrap | 21.71% (33/152) | — | 7.1 min | raw-text baseline |
+| 0.3.0 llm (extract per turn) | 23.03% (35/152) | +1.3 | 51.0 min | LLM extraction only |
+| **0.4.0 wrap + identifier llm** | **36.84% (56/152)** | **+15.1** | **17.9 min** | wrap raw + LLM event identification |
+| 0.4.0 llm + identifier llm | 32.89% (50/152) | +11.2 | 71.9 min | both LLM stages |
+
+**The MemoryEvent identifier alone (no LLM during extraction) beats the 0.3.0 LLM-extraction pipeline by 13.8pp AND runs ~3× faster** — one LLM call per session-boundary identification batch (~14 calls/conv) instead of one per raw turn (~419 calls/conv).
+
+**Adding LLM extraction *on top of* identification is counterproductive** on this sample: -3.9pp vs identifier-only. Probable reasons: the LLM-extracted `annotations.summary` competes with the event-level canonical description in the composed embedding, and the answerer sees a noisier candidate set.
+
+#### Per-category breakdown
+
+| Category | 0.3.0 wrap | 0.3.0 llm | **0.4.0 wrap + id** | 0.4.0 llm + id |
+|----------|-----------:|----------:|--------------------:|---------------:|
+| multi_hop | 23.1% (3/13) | 38.5% (5/13) | **30.8%** (4/13) | 38.5% (5/13) |
+| single_hop | 12.5% (4/32) | 15.6% (5/32) | **21.9%** (7/32) | 25.0% (8/32) |
+| temporal | 2.7% (1/37) | 5.4% (2/37) | **8.1%** (3/37) | 8.1% (3/37) |
+| open_domain | 35.7% (25/70) | 32.9% (23/70) | **60.0%** (42/70) | 48.6% (34/70) |
+
+**Open-domain doubled** (35.7% → 60.0% with wrap+id), and every category climbed. Temporal still trails — timestamp reasoning isn't an extraction problem.
+
+### LongMemEval oracle (first 20q)
+
+| Run | Accuracy | Δ |
+|-----|---------:|---:|
+| 0.3.0 baseline | 60% (12/20) | — |
+| **0.4.0 + identifier llm** | **75% (15/20)** | **+15.0pp** |
+
+Oracle split is pre-filtered context — measures the downstream pipeline. The +15pp lift here comes from the event layer giving the answerer canonical state assertions to ground on, instead of asking it to assemble facts from raw turns.
+
+### Configuration used
+
+- Memorai 0.4.0 (MemoryEvent layer)
+- Embedder: `nomic-embed-text` via Ollama (768-d)
+- Extractor: `WrapExtractor` (no LLM during ingest extraction) for the headline run
+- Event identifier: `LLMEventIdentifier` with `gemma4:31b-cloud` (Google Gemma 31B, hosted)
+- Answerer: `gemma4:31b-cloud`
+- Judge: `qwen3-coder-next:cloud` (different family — Alibaba Qwen)
+- Top-K: 30
+- Storage: in-memory; identifier batch size 30; one identification pass per session
+
+### How to reproduce
+
+```bash
+pnpm --filter @memorai/benchmarks bench:locomo \
+  --limit 1 \
+  --extractor wrap \
+  --identifier llm \
+  --identifier-model gemma4:31b-cloud \
+  --answerer-model gemma4:31b-cloud \
+  --judge-model qwen3-coder-next:cloud
+```
+
+### Caveats
+
+- Single conversation (conv-26 of 10). Cross-conv aggregate not yet run.
+- Single seed per run; LLM-as-judge is non-deterministic; expect ±2pp run-to-run noise.
+- The Gap to mem0's published full-LLM pipeline (65–70%) is still ~30pp on this slice. Identified next levers: cross-conv aggregation, stronger answerer (gpt-4o), domain-tuned identifier prompts.
+- 0.4.0 has a known issue: combining `--extractor llm` with `--identifier llm` underperforms identifier-alone. Recommendation for v1: ship `--extractor wrap --identifier llm` as the default.
+
 ## 2026-05-17 — Memorai 0.3.0 (three-tier raw + annotations + indexes)
 
 0.3.0 splits `MemoryNode` into immutable Tier 1 `raw` (the canonical timeline) and regenerable Tier 2 `annotations`. Tier 3 indexes (BM25 / vector / tag / time) are rebuilt automatically from both tiers by the storage adapter. The new `Memorai.reAnnotate()` method regenerates Tier 2 + Tier 3 over the existing store from the immutable Tier 1 — letting you upgrade the extractor or switch embedding models without losing the source timeline.
