@@ -343,10 +343,13 @@ export class Memorai {
 
     const result = await this.retrieval.retrieve(mergedQuery);
 
+    // Update lastAccessed / accessCount and persist a clean copy of each
+    // node — the retrieval engine annotates nodes with `_score` / `_pathways`
+    // / `_pathwayScores` for provenance, which must NOT be persisted.
     for (const node of result.nodes) {
       node.meta.lastAccessed = Date.now();
       node.meta.accessCount += 1;
-      await this.config.storage.put(node);
+      await this.config.storage.put(stripAnnotations(node));
     }
 
     return result;
@@ -491,24 +494,40 @@ export class Memorai {
   }
 
   private toRecallResult(result: RetrievalResult): RecallResult {
-    const memories: RecalledMemory[] = result.nodes.map((n) => ({
-      id: n.id,
-      at: n.timestamp,
-      during:
-        n.duration && n.duration > 0
-          ? { start: n.timestamp - n.duration, end: n.timestamp }
-          : undefined,
-      userId: n.userId,
-      actor: n.actor,
-      target: n.target,
-      summary: n.payload.summary,
-      description: n.payload.description,
-      tags: n.payload.tags,
-      salienceScore: n.payload.salienceScore,
-      evidence: n.payload.media,
-      score: (n as MemoryNode & { _score?: number })._score ?? n.payload.salienceScore,
-      level: n.level,
-    }));
+    const memories: RecalledMemory[] = result.nodes.map((n) => {
+      const annotated = n as MemoryNode & {
+        _score?: number;
+        _pathways?: string[];
+        _pathwayScores?: Record<string, number>;
+      };
+      const provenance =
+        annotated._pathways && annotated._pathways.length > 0
+          ? {
+              pathways: annotated._pathways,
+              fusedScore: annotated._score ?? 0,
+              pathwayScores: annotated._pathwayScores,
+            }
+          : undefined;
+      return {
+        id: n.id,
+        at: n.timestamp,
+        during:
+          n.duration && n.duration > 0
+            ? { start: n.timestamp - n.duration, end: n.timestamp }
+            : undefined,
+        userId: n.userId,
+        actor: n.actor,
+        target: n.target,
+        summary: n.payload.summary,
+        description: n.payload.description,
+        tags: n.payload.tags,
+        salienceScore: n.payload.salienceScore,
+        evidence: n.payload.media,
+        score: annotated._score ?? n.payload.salienceScore,
+        level: n.level,
+        provenance,
+      };
+    });
     return {
       memories,
       confidence: result.confidence,
@@ -595,9 +614,35 @@ export class Memorai {
   }
 }
 
+/**
+ * Strip transient retrieval annotations (`_score` / `_pathways` /
+ * `_pathwayScores`) from a node before persisting it. The annotations live
+ * on the same object during a retrieval pass for performance but must NOT
+ * be written back to storage.
+ */
+function stripAnnotations(node: MemoryNode): MemoryNode {
+  const { id, timestamp, duration, level, payload, meta } = node;
+  const clean: MemoryNode = {
+    id,
+    timestamp,
+    duration,
+    level,
+    payload,
+    meta,
+  };
+  if (node.userId !== undefined) clean.userId = node.userId;
+  if (node.actor !== undefined) clean.actor = node.actor;
+  if (node.target !== undefined) clean.target = node.target;
+  if (node.parentId !== undefined) clean.parentId = node.parentId;
+  if (node.childrenIds !== undefined) clean.childrenIds = node.childrenIds;
+  if (node.mergedFrom !== undefined) clean.mergedFrom = node.mergedFrom;
+  return clean;
+}
+
 // Re-export everything from submodules for convenience
 export * from "./types.js";
 export * from "./utils.js";
+export { BM25Index, tokenize as bm25Tokenize } from "./bm25.js";
 export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";

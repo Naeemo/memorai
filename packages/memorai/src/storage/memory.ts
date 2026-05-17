@@ -1,4 +1,5 @@
 import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
+import { BM25Index } from "../bm25.js";
 
 /**
  * In-memory storage adapter.
@@ -12,6 +13,7 @@ export class MemoryAdapter implements StorageAdapter {
   private userIndex = new Map<string, Set<string>>();
   private actorIndex = new Map<string, Set<string>>();
   private targetIndex = new Map<string, Set<string>>();
+  private bm25 = new BM25Index();
 
   put(node: MemoryNode): Promise<void> {
     this.unindex(node.id);
@@ -82,6 +84,18 @@ export class MemoryAdapter implements StorageAdapter {
     return Promise.resolve(this.applyOpts(this.lookup(this.targetIndex, target), opts));
   }
 
+  queryByText(
+    text: string,
+    opts?: QueryOpts & { limit?: number },
+  ): Promise<MemoryNode[]> {
+    const limit = opts?.limit ?? 50;
+    const hits = this.bm25.search(text, Math.max(limit, opts?.limit ?? 50));
+    const nodes = hits
+      .map((h) => this.nodes.get(h.docId))
+      .filter((n): n is MemoryNode => Boolean(n));
+    return Promise.resolve(this.applyOpts(nodes, opts));
+  }
+
   getChildren(parentId: string): Promise<MemoryNode[]> {
     return Promise.resolve(
       Array.from(this.nodes.values()).filter((n) => n.parentId === parentId),
@@ -104,6 +118,7 @@ export class MemoryAdapter implements StorageAdapter {
     this.userIndex.clear();
     this.actorIndex.clear();
     this.targetIndex.clear();
+    this.bm25.clear();
     return Promise.resolve();
   }
 
@@ -116,6 +131,7 @@ export class MemoryAdapter implements StorageAdapter {
     if (node.userId) addToIndex(this.userIndex, node.userId, node.id);
     if (node.actor) addToIndex(this.actorIndex, node.actor, node.id);
     if (node.target) addToIndex(this.targetIndex, node.target, node.id);
+    this.bm25.put(node.id, this.indexableText(node));
   }
 
   private unindex(id: string): void {
@@ -127,6 +143,14 @@ export class MemoryAdapter implements StorageAdapter {
     if (existing.userId) removeFromIndex(this.userIndex, existing.userId, id);
     if (existing.actor) removeFromIndex(this.actorIndex, existing.actor, id);
     if (existing.target) removeFromIndex(this.targetIndex, existing.target, id);
+    this.bm25.remove(id);
+  }
+
+  private indexableText(node: MemoryNode): string {
+    const parts = [node.payload.summary];
+    if (node.payload.description) parts.push(node.payload.description);
+    if (node.payload.tags.length > 0) parts.push(node.payload.tags.join(" "));
+    return parts.join(" ");
   }
 
   private lookup(index: Map<string, Set<string>>, key: string): MemoryNode[] {

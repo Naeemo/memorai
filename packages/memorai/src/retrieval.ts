@@ -9,17 +9,29 @@ import type {
   TraversalStats,
 } from "./types.js";
 
+/** Reciprocal-Rank-Fusion constant. Standard literature value. */
+const RRF_K = 60;
+/** Default depth each pathway fetches before fusion. */
+const PATHWAY_DEPTH = 50;
+/** Internal annotation we attach to nodes during retrieval. */
+type Annotated = MemoryNode & {
+  _score: number;
+  _pathways: string[];
+  _pathwayScores: Record<string, number>;
+};
+
 /**
- * Advanced retrieval engine (Phase 3).
+ * Multi-pathway retrieval engine with Reciprocal Rank Fusion.
  *
- * Features:
- * 1. Command-driven retrieval — strategy (factual / temporal / inferential /
- *    exploratory) determines traversal depth, ranking weights, and early-stop.
- * 2. Concurrent candidate pipeline — semantic + tag + temporal + salience
- *    searches run in parallel, merged and re-ranked.
- * 3. Self-directed temporal traversal — forward (causal), reverse
- *    (recent-first), salience-first.
- * 4. Early-stop — stop when confidence threshold or enough evidence is met.
+ * Each pathway (semantic / bm25 / tag / time / salience / userId / actor /
+ * target) returns its own ranked list. The lists are fused by RRF:
+ *
+ *     fusedScore(doc) = Σ_pathway 1 / (k + rank_pathway(doc))
+ *
+ * A document surfacing in multiple pathways gets a multiplicative trust
+ * boost. The per-pathway origin and raw scores are kept on each result so
+ * `recall()` can attach a `provenance` field that explains *why* a memory
+ * was returned.
  */
 export class RetrievalEngine {
   constructor(private readonly storage: StorageAdapter) {}
@@ -33,125 +45,163 @@ export class RetrievalEngine {
       timeMs: 0,
     };
 
-    // Step 1: Resolve traversal order (self-directed)
     const traversal = query.traversalOrder ?? "reverse";
 
-    // Step 2: Build candidate set (concurrent pipeline)
+    // 1. Run pathways in parallel, fuse via RRF, attach provenance.
     const candidates = await this.buildCandidateSet(query, traversal, stats);
 
-    // Step 3: Apply command-driven filters
+    // 2. Strategy-driven filters + boosts.
     const filtered = this.applyStrategyFilters(query, candidates);
 
-    // Step 4: Re-rank
+    // 3. Re-rank by traversal order.
     const ranked = this.reRank(query, filtered, traversal);
 
-    // Step 5: Early-stop / slice
+    // 4. Slice + early-stop.
     const result = this.applyStopCriteria(query, ranked);
 
     stats.matched = result.nodes.length;
     stats.pruned = stats.scanned - stats.matched;
     stats.timeMs = Math.round(performance.now() - startTime);
 
-    // Aggregate confidence
-    const avgScore =
-      result.nodes.length > 0
-        ? result.nodes.reduce((sum, n) => sum + (n._score ?? 0), 0) / result.nodes.length
-        : 0;
-    const confidence = Math.min(1, Math.max(0, avgScore));
-
-    // Clean up internal _score field
-    for (const node of result.nodes) {
-      delete (node as MemoryNode & { _score?: number })._score;
-    }
+    // Confidence: fraction of *active* pathways that agreed on the top
+    // results. High when 3+ routes all surfaced the same docs; low when
+    // only one route found anything.
+    const totalPathways = this.countActivePathways(query, traversal);
+    const confidence = result.nodes.length === 0
+      ? 0
+      : Math.min(
+          1,
+          result.nodes.reduce(
+            (sum, n) => sum + Math.min(1, n._pathways.length / Math.max(1, totalPathways)),
+            0,
+          ) / result.nodes.length,
+        );
 
     return { nodes: result.nodes, confidence, traversalStats: stats };
   }
 
-  // ─── Concurrent candidate pipeline ───
+  private countActivePathways(
+    query: RetrievalQuery,
+    traversal: TraversalOrder,
+  ): number {
+    let n = 0;
+    if (query.embedding) n += 1;
+    if (query.text) n += 2; // bm25 + tag
+    if (query.timeRange) n += 1;
+    if (query.strategy === "exploratory" || traversal === "salience") n += 1;
+    if (query.userId) n += 1;
+    if (query.actor) n += 1;
+    if (query.target) n += 1;
+    return Math.max(1, n);
+  }
+
+  // ─── Multi-pathway candidate pipeline ───
 
   private async buildCandidateSet(
     query: RetrievalQuery,
     traversal: TraversalOrder,
     stats: TraversalStats,
-  ): Promise<Array<MemoryNode & { _score: number }>> {
-    const promises: Promise<MemoryNode[]>[] = [];
+  ): Promise<Annotated[]> {
+    // Each pathway returns a *ranked* list. Rank starts at 0 (best).
+    const tasks: Array<Promise<{ name: string; ranked: Array<{ id: string; score: number }> }>> = [];
 
-    // Branch A: semantic search (embedding cosine)
     if (query.embedding) {
-      promises.push(this.semanticSearch(query));
+      tasks.push(this.runPathway("semantic", () => this.semanticPathway(query)));
     }
-
-    // Branch B: tag/keyword search
     if (query.text) {
-      promises.push(this.tagSearch(query), this.keywordSearch(query));
+      tasks.push(this.runPathway("bm25", () => this.bm25Pathway(query)));
+      tasks.push(this.runPathway("tag", () => this.tagPathway(query)));
     }
-
-    // Branch C: temporal range
     if (query.timeRange) {
-      promises.push(this.storage.queryByTimeRange(query.timeRange.start, query.timeRange.end));
+      tasks.push(
+        this.runPathway("time", () =>
+          this.timePathway(query.timeRange!.start, query.timeRange!.end),
+        ),
+      );
     }
-
-    // Branch D: salience pre-filter (if strategy wants high-salience)
     if (query.strategy === "exploratory" || traversal === "salience") {
-      promises.push(this.storage.queryBySalience(0.5));
+      tasks.push(this.runPathway("salience", () => this.saliencePathway()));
+    }
+    if (query.userId) {
+      tasks.push(
+        this.runPathway("userId", () => this.identityPathway("userId", query.userId!)),
+      );
+    }
+    if (query.actor) {
+      tasks.push(
+        this.runPathway("actor", () => this.identityPathway("actor", query.actor!)),
+      );
+    }
+    if (query.target) {
+      tasks.push(
+        this.runPathway("target", () => this.identityPathway("target", query.target!)),
+      );
     }
 
-    // Branch E: identity-scoped pulls — restrict to participants when set.
-    if (query.userId) promises.push(this.storage.queryByUserId(query.userId));
-    if (query.actor) promises.push(this.storage.queryByActor(query.actor));
-    if (query.target) promises.push(this.storage.queryByTarget(query.target));
-
-    // Branch F: fallback — all nodes (small datasets only)
-    if (promises.length === 0) {
-      promises.push(this.storage.listAll());
+    if (tasks.length === 0) {
+      // No signal at all — fall back to listAll, ranked by salience.
+      tasks.push(this.runPathway("fallback", () => this.saliencePathway()));
     }
 
-    // Run all in parallel
-    const results = await Promise.allSettled(promises);
-    const allNodes: MemoryNode[] = [];
+    const results = await Promise.allSettled(tasks);
+
+    // Fuse via RRF — accumulate per-doc fused score + provenance.
+    const fused = new Map<string, { score: number; pathways: string[]; pathwayScores: Record<string, number> }>();
     for (const r of results) {
-      if (r.status === "fulfilled") {
-        allNodes.push(...r.value);
+      if (r.status !== "fulfilled") continue;
+      const { name, ranked } = r.value;
+      for (const [rank, hit] of ranked.entries()) {
+        let entry = fused.get(hit.id);
+        if (!entry) {
+          entry = { score: 0, pathways: [], pathwayScores: {} };
+          fused.set(hit.id, entry);
+        }
+        entry.score += 1 / (RRF_K + rank);
+        entry.pathways.push(name);
+        entry.pathwayScores[name] = hit.score;
       }
     }
 
-    // Deduplicate by ID
-    const unique = new Map<string, MemoryNode>();
-    for (const n of allNodes) {
-      unique.set(n.id, n);
-    }
-    stats.scanned = unique.size;
+    stats.scanned = fused.size;
 
-    // Compute base semantic score for each candidate
-    const scored: Array<MemoryNode & { _score: number }> = [];
-    for (const n of unique.values()) {
-      let score = 0;
-      if (query.embedding && n.payload.embedding) {
-        score = cosineSimilarity(query.embedding, n.payload.embedding);
-      } else if (query.text) {
-        score = this.keywordScore(n, query.text);
-      } else {
-        score = n.payload.salienceScore;
-      }
-      scored.push({ ...n, _score: score });
+    // Hydrate node objects.
+    const ids = [...fused.keys()];
+    const hydrated = await Promise.all(ids.map((id) => this.storage.get(id)));
+    const annotated: Annotated[] = [];
+    for (const [i, node] of hydrated.entries()) {
+      if (!node) continue;
+      const meta = fused.get(ids[i])!;
+      annotated.push({
+        ...node,
+        _score: meta.score,
+        _pathways: meta.pathways,
+        _pathwayScores: meta.pathwayScores,
+      });
     }
 
-    return scored;
+    return annotated;
   }
 
-  private async semanticSearch(query: RetrievalQuery): Promise<MemoryNode[]> {
+  private async runPathway(
+    name: string,
+    runner: () => Promise<Array<{ id: string; score: number }>>,
+  ): Promise<{ name: string; ranked: Array<{ id: string; score: number }> }> {
+    const ranked = await runner();
+    return { name, ranked };
+  }
+
+  private async semanticPathway(
+    query: RetrievalQuery,
+  ): Promise<Array<{ id: string; score: number }>> {
     const all = await this.storage.listAll();
     const candidates = all.filter((n) => n.payload.embedding);
-    const k = query.maxCandidates ?? 100;
+    const k = query.maxCandidates ?? PATHWAY_DEPTH;
     const minThreshold = 0.3;
-
-    // Min-heap for top-k (O(N log K) vs O(N log N) with full sort)
     const heap: Array<{ node: MemoryNode; score: number }> = [];
 
     for (const n of candidates) {
       const score = cosineSimilarity(query.embedding!, n.payload.embedding!);
       if (score < minThreshold) continue;
-
       if (heap.length < k) {
         heap.push({ node: n, score });
         this.heapifyUp(heap, heap.length - 1);
@@ -160,11 +210,207 @@ export class RetrievalEngine {
         this.heapifyDown(heap, 0);
       }
     }
-
-    // Sort descending by score before returning
     heap.sort((a, b) => b.score - a.score);
-    return heap.map((s) => s.node);
+    return heap.map((s) => ({ id: s.node.id, score: s.score }));
   }
+
+  private async bm25Pathway(
+    query: RetrievalQuery,
+  ): Promise<Array<{ id: string; score: number }>> {
+    const limit = query.maxCandidates ?? PATHWAY_DEPTH;
+    const nodes = await this.storage.queryByText(query.text!, { limit });
+    // queryByText returns BM25-sorted; preserve order.
+    return nodes.map((n, i) => ({ id: n.id, score: limit - i }));
+  }
+
+  private async tagPathway(
+    query: RetrievalQuery,
+  ): Promise<Array<{ id: string; score: number }>> {
+    const words = query.text!.toLowerCase().split(/\W+/).filter((w) => w.length > 2);
+    if (words.length === 0) return [];
+    const nodes = await this.storage.queryByTags(words);
+    // Rank by how many query terms appear in tags (descending).
+    const scored = nodes.map((n) => {
+      const tagSet = new Set(n.payload.tags.map((t) => t.toLowerCase()));
+      const hits = words.filter((w) => tagSet.has(w)).length;
+      return { id: n.id, score: hits };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, PATHWAY_DEPTH);
+  }
+
+  private async timePathway(
+    start: number,
+    end: number,
+  ): Promise<Array<{ id: string; score: number }>> {
+    const nodes = await this.storage.queryByTimeRange(start, end);
+    // Rank by recency within the window — most recent gets rank 0.
+    return nodes
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, PATHWAY_DEPTH)
+      .map((n, i) => ({ id: n.id, score: PATHWAY_DEPTH - i }));
+  }
+
+  private async saliencePathway(): Promise<Array<{ id: string; score: number }>> {
+    const nodes = await this.storage.queryBySalience(0.5);
+    return nodes
+      .sort((a, b) => b.payload.salienceScore - a.payload.salienceScore)
+      .slice(0, PATHWAY_DEPTH)
+      .map((n) => ({ id: n.id, score: n.payload.salienceScore }));
+  }
+
+  private async identityPathway(
+    kind: "userId" | "actor" | "target",
+    value: string,
+  ): Promise<Array<{ id: string; score: number }>> {
+    const nodes =
+      kind === "userId"
+        ? await this.storage.queryByUserId(value)
+        : kind === "actor"
+          ? await this.storage.queryByActor(value)
+          : await this.storage.queryByTarget(value);
+    // Identity match: rank by recency, all matches get a non-zero score.
+    return nodes
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, PATHWAY_DEPTH)
+      .map((n, i) => ({ id: n.id, score: PATHWAY_DEPTH - i }));
+  }
+
+  // ─── Strategy-driven filters ───
+
+  private applyStrategyFilters(
+    query: RetrievalQuery,
+    candidates: Annotated[],
+  ): Annotated[] {
+    let results = candidates;
+
+    // Level filter — fallback to all levels if requested level has no matches.
+    if (query.level) {
+      const filtered = results.filter((n) => n.level === query.level);
+      if (filtered.length > 0) {
+        results = filtered;
+      }
+    }
+
+    if (query.timeRange) {
+      results = results.filter(
+        (n) =>
+          n.timestamp >= query.timeRange!.start &&
+          n.timestamp <= query.timeRange!.end,
+      );
+    }
+    if (query.agentRole) {
+      results = results.filter((n) => n.meta.agentRole === query.agentRole);
+    }
+    if (query.userId) results = results.filter((n) => n.userId === query.userId);
+    if (query.actor) results = results.filter((n) => n.actor === query.actor);
+    if (query.target) results = results.filter((n) => n.target === query.target);
+
+    switch (query.strategy) {
+      case "factual":
+        results = results.map((n) => {
+          let boost = 1;
+          if (n.level === "atomic_action") boost *= 1.2;
+          if (n.payload.salienceScore > 0.8) boost *= 1.1;
+          return { ...n, _score: n._score * boost };
+        });
+        break;
+      case "temporal":
+        results = results.map((n) => {
+          let boost = 1;
+          if (n.level === "event") boost *= 1.3;
+          const ageHours = (Date.now() - n.timestamp) / 3600000;
+          boost *= Math.max(0.5, 1 - ageHours / 168);
+          return { ...n, _score: n._score * boost };
+        });
+        break;
+      case "inferential":
+        results = results.map((n) => {
+          let boost = 1;
+          if (n.level === "event") boost *= 1.4;
+          if (n.childrenIds && n.childrenIds.length > 2) boost *= 1.2;
+          return { ...n, _score: n._score * boost };
+        });
+        break;
+      case "exploratory":
+        results = results.map((n) => {
+          let boost = 1;
+          if (n.payload.modality.includes("multimodal")) boost *= 1.2;
+          return { ...n, _score: n._score * boost };
+        });
+        break;
+    }
+
+    return results;
+  }
+
+  // ─── Temporal traversal ordering ───
+
+  private reRank(
+    _query: RetrievalQuery,
+    candidates: Annotated[],
+    traversal: TraversalOrder,
+  ): Annotated[] {
+    switch (traversal) {
+      case "forward":
+        candidates.sort((a, b) => {
+          const timeDiff = a.timestamp - b.timestamp;
+          if (timeDiff !== 0) return timeDiff;
+          return b._score - a._score;
+        });
+        break;
+      case "reverse":
+        candidates.sort((a, b) => {
+          const timeDiff = b.timestamp - a.timestamp;
+          if (timeDiff !== 0) return timeDiff;
+          return b._score - a._score;
+        });
+        break;
+      case "salience":
+        candidates.sort((a, b) => {
+          const compositeA = 0.6 * a._score + 0.4 * a.payload.salienceScore;
+          const compositeB = 0.6 * b._score + 0.4 * b.payload.salienceScore;
+          return compositeB - compositeA;
+        });
+        break;
+    }
+    return candidates;
+  }
+
+  // ─── Early-stop ───
+
+  private applyStopCriteria(
+    query: RetrievalQuery,
+    ranked: Annotated[],
+  ): { nodes: Annotated[] } {
+    const topK = query.topK ?? 5;
+    const maxDepth = query.maxCandidates ?? topK * 2;
+    let results = ranked.slice(0, maxDepth);
+
+    if (query.earlyStop) {
+      const strategyStopThreshold: Record<RetrievalStrategy, number> = {
+        factual: 0.05,
+        temporal: 0.04,
+        inferential: 0.03,
+        exploratory: 0.02,
+      };
+      const threshold = strategyStopThreshold[query.strategy];
+
+      let stopIndex = results.length;
+      for (const [i, result] of results.entries()) {
+        if (result._score < threshold && i >= topK) {
+          stopIndex = i;
+          break;
+        }
+      }
+      results = results.slice(0, Math.max(topK, stopIndex));
+    }
+
+    results = results.slice(0, topK);
+    return { nodes: results };
+  }
+
+  // ─── Heap helpers for semantic top-K ───
 
   private heapifyUp(
     heap: Array<{ node: MemoryNode; score: number }>,
@@ -194,204 +440,5 @@ export class RetrievalEngine {
       [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
       i = smallest;
     }
-  }
-
-  private tagSearch(query: RetrievalQuery): Promise<MemoryNode[]> {
-    // Extract likely tags from query text
-    const words = query
-      .text!.toLowerCase()
-      .split(/\W+/)
-      .filter((w) => w.length > 2);
-    if (words.length === 0) return Promise.resolve([]);
-    return this.storage.queryByTags(words);
-  }
-
-  private keywordSearch(query: RetrievalQuery): Promise<MemoryNode[]> {
-    // Simple keyword scan — storage adapter may not support full-text
-    // so we do it client-side over a reasonable window
-    return this.storage.listAll().then((all) => {
-      const lowerText = query.text!.toLowerCase();
-      return all.filter(
-        (n) =>
-          n.payload.summary.toLowerCase().includes(lowerText) ||
-          n.payload.description?.toLowerCase().includes(lowerText) ||
-          n.payload.tags.some((t) => lowerText.includes(t.toLowerCase())),
-      );
-    });
-  }
-
-  // ─── Strategy-driven filters ───
-
-  private applyStrategyFilters(
-    query: RetrievalQuery,
-    candidates: Array<MemoryNode & { _score: number }>,
-  ): Array<MemoryNode & { _score: number }> {
-    let results = candidates;
-
-    // Level filter — fallback to all levels if requested level has no matches
-    if (query.level) {
-      const filtered = results.filter((n) => n.level === query.level);
-      if (filtered.length > 0) {
-        results = filtered;
-      }
-      // else: keep all levels as fallback
-    }
-
-    // Time range filter
-    if (query.timeRange) {
-      results = results.filter(
-        (n) =>
-          n.timestamp >= query.timeRange!.start &&
-          n.timestamp <= query.timeRange!.end,
-      );
-    }
-
-    // Agent role filter
-    if (query.agentRole) {
-      results = results.filter((n) => n.meta.agentRole === query.agentRole);
-    }
-
-    // userId / actor / target filters — narrow to a participant scope
-    if (query.userId) {
-      results = results.filter((n) => n.userId === query.userId);
-    }
-    if (query.actor) {
-      results = results.filter((n) => n.actor === query.actor);
-    }
-    if (query.target) {
-      results = results.filter((n) => n.target === query.target);
-    }
-
-    // Strategy-specific adjustments
-    switch (query.strategy) {
-      case "factual":
-        // Boost exact / high-similarity matches, prefer atomic_actions
-        results = results.map((n) => {
-          let boost = 1;
-          if (n.level === "atomic_action") boost *= 1.2;
-          if (n.payload.salienceScore > 0.8) boost *= 1.1;
-          return { ...n, _score: n._score * boost };
-        });
-        break;
-
-      case "temporal":
-        // Boost recent nodes and events (which span time)
-        results = results.map((n) => {
-          let boost = 1;
-          if (n.level === "event") boost *= 1.3;
-          // Recency decay: newer = higher boost
-          const ageHours = (Date.now() - n.timestamp) / 3600000;
-          boost *= Math.max(0.5, 1 - ageHours / 168); // 1 week half-life
-          return { ...n, _score: n._score * boost };
-        });
-        break;
-
-      case "inferential":
-        // Need cross-level evidence — don't filter by level, boost events
-        // because they aggregate multiple atomic actions
-        results = results.map((n) => {
-          let boost = 1;
-          if (n.level === "event") boost *= 1.4;
-          if (n.childrenIds && n.childrenIds.length > 2) boost *= 1.2;
-          return { ...n, _score: n._score * boost };
-        });
-        break;
-
-      case "exploratory":
-        // Diversity: boost variety, don't over-weight exact matches
-        results = results.map((n) => {
-          let boost = 1;
-          if (n.payload.modality.includes("multimodal")) boost *= 1.2;
-          return { ...n, _score: n._score * boost };
-        });
-        break;
-    }
-
-    return results;
-  }
-
-  // ─── Temporal traversal ordering ───
-
-  private reRank(
-    query: RetrievalQuery,
-    candidates: Array<MemoryNode & { _score: number }>,
-    traversal: TraversalOrder,
-  ): Array<MemoryNode & { _score: number }> {
-    switch (traversal) {
-      case "forward":
-        // Sort by timestamp ascending (causal order), break ties by score
-        candidates.sort((a, b) => {
-          const timeDiff = a.timestamp - b.timestamp;
-          if (timeDiff !== 0) return timeDiff;
-          return b._score - a._score;
-        });
-        break;
-
-      case "reverse":
-        // Sort by timestamp descending (recent-first), break ties by score
-        candidates.sort((a, b) => {
-          const timeDiff = b.timestamp - a.timestamp;
-          if (timeDiff !== 0) return timeDiff;
-          return b._score - a._score;
-        });
-        break;
-
-      case "salience":
-        // Sort by composite: 60% score + 40% salience
-        candidates.sort((a, b) => {
-          const compositeA = 0.6 * a._score + 0.4 * a.payload.salienceScore;
-          const compositeB = 0.6 * b._score + 0.4 * b.payload.salienceScore;
-          return compositeB - compositeA;
-        });
-        break;
-    }
-
-    return candidates;
-  }
-
-  // ─── Early-stop ───
-
-  private applyStopCriteria(
-    query: RetrievalQuery,
-    ranked: Array<MemoryNode & { _score: number }>,
-  ): { nodes: Array<MemoryNode & { _score: number }> } {
-    const topK = query.topK ?? 5;
-    const maxDepth = query.maxCandidates ?? topK * 2;
-    let results = ranked.slice(0, maxDepth);
-
-    if (query.earlyStop) {
-      const strategyStopThreshold: Record<RetrievalStrategy, number> = {
-        factual: 0.85,
-        temporal: 0.75,
-        inferential: 0.7,
-        exploratory: 0.6,
-      };
-      const threshold = strategyStopThreshold[query.strategy];
-
-      // Find how many top results exceed the threshold
-      let stopIndex = results.length;
-      for (const [i, result] of results.entries()) {
-        if (result._score < threshold && i >= topK) {
-          stopIndex = i;
-          break;
-        }
-      }
-      results = results.slice(0, Math.max(topK, stopIndex));
-    }
-
-    // Final slice to topK
-    results = results.slice(0, topK);
-
-    return { nodes: results };
-  }
-
-  private keywordScore(node: MemoryNode, text: string): number {
-    const lowerText = text.toLowerCase();
-    let score = 0;
-    if (node.payload.summary.toLowerCase().includes(lowerText)) score += 0.5;
-    if (node.payload.description?.toLowerCase().includes(lowerText)) score += 0.3;
-    const tagHits = node.payload.tags.filter((t) => lowerText.includes(t.toLowerCase())).length;
-    score += tagHits * 0.1;
-    return Math.min(1, score);
   }
 }

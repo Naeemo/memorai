@@ -120,6 +120,12 @@ export interface StorageAdapter {
   queryByUserId: (userId: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
   queryByActor: (actor: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
   queryByTarget: (target: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
+  /**
+   * Sparse keyword retrieval. Adapters implement this with BM25 (or an
+   * equivalent best-effort) and return up to `limit` nodes ranked by
+   * relevance. Returns [] if `text` produces no tokens.
+   */
+  queryByText: (text: string, opts?: QueryOpts & { limit?: number }) => Promise<MemoryNode[]>;
   getChildren: (parentId: string) => Promise<MemoryNode[]>;
   getParent: (childId: string) => Promise<MemoryNode | null>;
   listAll: (opts?: QueryOpts) => Promise<MemoryNode[]>;
@@ -326,6 +332,15 @@ export interface RecallOptions {
   overrideQuery?: Partial<RetrievalQuery>;
 }
 
+export interface RecalledMemoryProvenance {
+  /** Names of the retrieval pathways that surfaced this memory. */
+  pathways: string[];
+  /** RRF-fused score across all surfacing pathways. */
+  fusedScore: number;
+  /** Per-pathway raw score (semantic cosine, BM25 weight, etc.) for transparency. */
+  pathwayScores?: Record<string, number>;
+}
+
 export interface RecalledMemory {
   id: string;
   at: number;
@@ -340,6 +355,8 @@ export interface RecalledMemory {
   evidence?: MediaPayload;
   score: number;
   level: MemoryLevel;
+  /** Multi-pathway retrieval evidence — which routes found this memory. */
+  provenance?: RecalledMemoryProvenance;
 }
 
 export interface RecallResult {

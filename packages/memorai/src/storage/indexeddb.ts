@@ -3,6 +3,7 @@
    `addEventListener` on IDBRequest is supported but unconventional.
 */
 import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
+import { BM25Index } from "../bm25.js";
 
 /**
  * Browser IndexedDB storage adapter.
@@ -10,12 +11,17 @@ import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
  * Uses a single DB with object store keyed by node.id.
  *
  * IndexedDB operations are wrapped in Promises for async/await ergonomics.
+ *
+ * BM25: maintained in-memory alongside the persisted store. The index is
+ * lazily rebuilt from IDB on the first `queryByText` call.
  */
 export class IndexedDBAdapter implements StorageAdapter {
   private db: IDBDatabase | null = null;
   private readonly dbName: string;
   private readonly storeName = "memories";
   private readonly version = 2;
+  private bm25 = new BM25Index();
+  private bm25Hydrated = false;
 
   constructor(opts: { dbName?: string } = {}) {
     this.dbName = opts.dbName ?? "memorai";
@@ -71,6 +77,7 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   async put(node: MemoryNode): Promise<void> {
     await this.withStore("readwrite", (store) => store.put(node));
+    this.bm25.put(node.id, this.indexableText(node));
   }
 
   async get(id: string): Promise<MemoryNode | null> {
@@ -80,6 +87,7 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   async delete(id: string): Promise<void> {
     await this.withStore("readwrite", (store) => store.delete(id));
+    this.bm25.remove(id);
   }
 
   async batchPut(nodes: MemoryNode[]): Promise<void> {
@@ -93,6 +101,9 @@ export class IndexedDBAdapter implements StorageAdapter {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("IndexedDB batch put failed"));
     });
+    for (const node of nodes) {
+      this.bm25.put(node.id, this.indexableText(node));
+    }
   }
 
   async queryByTimeRange(start: number, end: number, opts?: QueryOpts): Promise<MemoryNode[]> {
@@ -124,6 +135,25 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   async queryByTarget(target: string, opts?: QueryOpts): Promise<MemoryNode[]> {
     return this.applyOpts(await this.scanIndex("target", target), opts);
+  }
+
+  async queryByText(
+    text: string,
+    opts?: QueryOpts & { limit?: number },
+  ): Promise<MemoryNode[]> {
+    if (!this.bm25Hydrated) {
+      const all = await this.listAll();
+      for (const n of all) this.bm25.put(n.id, this.indexableText(n));
+      this.bm25Hydrated = true;
+    }
+    const limit = opts?.limit ?? 50;
+    const hits = this.bm25.search(text, Math.max(limit, 50));
+    const nodes: MemoryNode[] = [];
+    for (const h of hits) {
+      const n = await this.get(h.docId);
+      if (n) nodes.push(n);
+    }
+    return this.applyOpts(nodes, opts);
   }
 
   async getChildren(parentId: string): Promise<MemoryNode[]> {
@@ -162,10 +192,19 @@ export class IndexedDBAdapter implements StorageAdapter {
       this.db.close();
       this.db = null;
     }
+    this.bm25.clear();
+    this.bm25Hydrated = false;
     return Promise.resolve();
   }
 
   // ─── Helpers ───
+
+  private indexableText(node: MemoryNode): string {
+    const parts = [node.payload.summary];
+    if (node.payload.description) parts.push(node.payload.description);
+    if (node.payload.tags.length > 0) parts.push(node.payload.tags.join(" "));
+    return parts.join(" ");
+  }
 
   private async scanIndex(
     name: string,

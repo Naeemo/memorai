@@ -1,4 +1,5 @@
 import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
+import { BM25Index } from "../bm25.js";
 
 /**
  * Minimal interface that any SQLite library must satisfy.
@@ -44,6 +45,8 @@ export class SQLiteAdapter implements StorageAdapter {
   private readonly byTargetStmt: SQLiteStatement;
   private readonly childrenStmt: SQLiteStatement;
   private readonly parentStmt: SQLiteStatement;
+  // In-memory BM25 index mirrors persisted nodes; rebuilt on construction.
+  private bm25 = new BM25Index();
 
   constructor(private readonly db: SQLiteDatabase) {
     this.initSchema();
@@ -86,6 +89,13 @@ export class SQLiteAdapter implements StorageAdapter {
     this.parentStmt = db.prepare(
       `SELECT json FROM memories WHERE id = (SELECT parentId FROM memories WHERE id = ?)`,
     );
+
+    // Rebuild in-memory BM25 from any pre-existing rows on construction.
+    const all = this.listAllStmt.all() as Array<{ json: string }>;
+    for (const row of all) {
+      const node = this.parse(row.json);
+      this.bm25.put(node.id, this.indexableText(node));
+    }
   }
 
   private initSchema(): void {
@@ -155,6 +165,7 @@ export class SQLiteAdapter implements StorageAdapter {
       target: node.target ?? null,
     });
     this.syncTags(node);
+    this.bm25.put(node.id, this.indexableText(node));
     return Promise.resolve();
   }
 
@@ -165,6 +176,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
   delete(id: string): Promise<void> {
     this.deleteStmt.run([id]);
+    this.bm25.remove(id);
     return Promise.resolve();
   }
 
@@ -205,6 +217,20 @@ export class SQLiteAdapter implements StorageAdapter {
     return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
   }
 
+  async queryByText(
+    text: string,
+    opts?: QueryOpts & { limit?: number },
+  ): Promise<MemoryNode[]> {
+    const limit = opts?.limit ?? 50;
+    const hits = this.bm25.search(text, Math.max(limit, 50));
+    const nodes: MemoryNode[] = [];
+    for (const h of hits) {
+      const n = await this.get(h.docId);
+      if (n) nodes.push(n);
+    }
+    return this.applyOpts(nodes, opts);
+  }
+
   getChildren(parentId: string): Promise<MemoryNode[]> {
     const rows = this.childrenStmt.all([parentId]) as Array<{ json: string }>;
     return Promise.resolve(rows.map((r) => this.parse(r.json)));
@@ -222,6 +248,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
   close(): Promise<void> {
     this.db.close();
+    this.bm25.clear();
     return Promise.resolve();
   }
 
@@ -234,6 +261,13 @@ export class SQLiteAdapter implements StorageAdapter {
     for (const tag of node.payload.tags) {
       insertTag.run([node.id, tag]);
     }
+  }
+
+  private indexableText(node: MemoryNode): string {
+    const parts = [node.payload.summary];
+    if (node.payload.description) parts.push(node.payload.description);
+    if (node.payload.tags.length > 0) parts.push(node.payload.tags.join(" "));
+    return parts.join(" ");
   }
 
   private parse(json: string): MemoryNode {
