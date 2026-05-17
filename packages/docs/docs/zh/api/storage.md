@@ -1,10 +1,10 @@
 # `StorageAdapter`
 
-The `StorageAdapter` is the runtime-specific dependency that holds Memorai's Tier 1 raw `MemoryNode`s and Tier 3 indexes. Anything that can store keyed records and respond to a few queries can implement it.
+`StorageAdapter` 是运行时相关的依赖，承载 Memorai 的 Tier 1 原始 `MemoryNode` 和 Tier 3 索引。任何能够存储键值记录并响应少量查询的后端都可以实现该接口。
 
-For the Tier 2.5 `MemoryEvent` layer, see [`EventStore`](/api/event-store) — that's a separate interface.
+Tier 2.5 的 `MemoryEvent` 层请参见 [`EventStore`](/zh/api/event-store) —— 那是一个独立的接口。
 
-## Interface
+## 接口
 
 ```typescript
 interface StorageAdapter {
@@ -49,15 +49,15 @@ interface QueryOpts {
 }
 ```
 
-## Built-in adapters
+## 内置适配器
 
-| Adapter | Runtime | Backend | Best for |
+| 适配器 | 运行时 | 后端 | 适用场景 |
 |---|---|---|---|
-| `MemoryAdapter` | Any | In-process `Map` + BM25 index | Tests, ephemeral sessions, benchmarks |
-| `IndexedDBAdapter` | Browser | IndexedDB | Browser extensions, web apps |
-| `SQLiteAdapter` | Node / Bun (Deno limited) | SQLite via `better-sqlite3`-compatible handle | Server-side persistence |
+| `MemoryAdapter` | 任何 | 进程内 `Map` + BM25 索引 | 测试、临时会话、基准 |
+| `IndexedDBAdapter` | 浏览器 | IndexedDB | 浏览器扩展、Web 应用 |
+| `SQLiteAdapter` | Node / Bun（Deno 受限） | 通过兼容 `better-sqlite3` 句柄的 SQLite | 服务端持久化 |
 
-Import them from the top-level barrel or from `memorai/storage`:
+从顶层桶或 `memorai/storage` 中导入它们：
 
 ```typescript
 import { MemoryAdapter, IndexedDBAdapter, SQLiteAdapter } from 'memorai';
@@ -67,7 +67,7 @@ import { MemoryAdapter, IndexedDBAdapter, SQLiteAdapter } from 'memorai/storage'
 
 ### `MemoryAdapter`
 
-Pure in-process implementation. Nothing persists. Ideal for tests, short-lived sessions, and the benchmark harness.
+纯进程内实现。不持久化任何数据。非常适合测试、短生命周期会话以及基准框架。
 
 ```typescript
 const storage = new MemoryAdapter();
@@ -75,7 +75,7 @@ const storage = new MemoryAdapter();
 
 ### `IndexedDBAdapter`
 
-Browser-only. Persists across reloads and tabs. Schema migrations are handled automatically (DB version 4 as of 0.4.0 — migrates the `event` → `episode` level rename from earlier versions).
+仅浏览器可用。跨刷新和标签页持久化。Schema 迁移会自动处理（截至 0.4.0 数据库版本为 4 —— 迁移自早期版本的 `event` → `episode` level 重命名）。
 
 ```typescript
 const storage = new IndexedDBAdapter({ dbName: 'my-agent-memory' });
@@ -83,24 +83,24 @@ const storage = new IndexedDBAdapter({ dbName: 'my-agent-memory' });
 
 ### `SQLiteAdapter`
 
-Server-side. Takes any `better-sqlite3`-compatible database handle.
+服务端。接受任意与 `better-sqlite3` 兼容的数据库句柄。
 
 ```typescript
 import Database from 'better-sqlite3';
 const storage = new SQLiteAdapter(new Database('./memory.db'));
 ```
 
-Compatible runtimes:
+兼容的运行时：
 
-| Runtime | DB |
+| 运行时 | DB |
 |---|---|
 | Node.js | `better-sqlite3` |
-| Bun | `bun:sqlite` (with a small adapter shim) |
-| Deno | Limited — `better-sqlite3` doesn't run there. Use `MemoryAdapter` or a custom adapter against Deno's SQLite. |
+| Bun | `bun:sqlite`（带一个小型 shim） |
+| Deno | 受限 —— `better-sqlite3` 无法运行。请使用 `MemoryAdapter` 或针对 Deno SQLite 的自定义适配器。 |
 
-## Writing your own adapter
+## 编写你自己的适配器
 
-Implement the interface and pass the instance to `new Memorai({ storage })`. Reuse `BM25Index` from `memorai` if you don't have a native FTS solution.
+实现该接口，并将实例传给 `new Memorai({ storage })`。如果你没有原生 FTS 方案，可复用 `memorai` 中的 `BM25Index`。
 
 ```typescript
 import type { StorageAdapter, MemoryNode, QueryOpts } from 'memorai';
@@ -121,12 +121,12 @@ class RedisAdapter implements StorageAdapter {
 }
 ```
 
-### Tips
+### 提示
 
-- **Index the hot paths.** `queryByTimeRange`, `queryByTags`, `queryByEmbedding` (via BM25 or vector search), `queryByUserId` are all called during recall. Native indexes pay off quickly.
-- **`batchPut` should be atomic-ish.** HME calls `batchPut` to commit merge results. Partial failures here leave the hierarchy inconsistent.
-- **Hierarchy queries need a parent index.** `getChildren(parentId)` is called every time a node is deleted with `cascade: true`.
-- **`close()` should be idempotent.** Memorai calls it once during `memory.close()`; nothing else should crash if called twice.
-- **Hydrate BM25 lazily.** `MemoryAdapter` and `IndexedDBAdapter` both lazy-load BM25 state from persisted nodes on first query. If your backend persists nodes but not BM25 state, do the same.
+- **为热路径建立索引。** `queryByTimeRange`、`queryByTags`、`queryByEmbedding`（通过 BM25 或向量搜索）、`queryByUserId` 都会在召回期间被调用。原生索引带来的收益显著。
+- **`batchPut` 应当尽量原子。** HME 调用 `batchPut` 来提交合并结果。此处的部分失败会让层级关系陷入不一致。
+- **层级查询需要父索引。** 每次以 `cascade: true` 删除节点时都会调用 `getChildren(parentId)`。
+- **`close()` 应当幂等。** Memorai 会在 `memory.close()` 期间调用一次；即便被重复调用也不应崩溃。
+- **延迟加载 BM25。** `MemoryAdapter` 和 `IndexedDBAdapter` 都会在首次查询时从持久化节点惰性加载 BM25 状态。如果你的后端持久化节点但不持久化 BM25 状态，请遵循同样做法。
 
-A Redis or PostgreSQL adapter is left as an exercise — both fit the interface naturally and existing community contributions are welcome.
+Redis 或 PostgreSQL 适配器留作练习 —— 两者都很自然地契合该接口，欢迎现有社区贡献。

@@ -1,16 +1,16 @@
-# Getting Started
+# 快速开始
 
-This page gets you from zero to a running agent memory in about five minutes. We'll record a few events, evolve the memory, and recall them.
+本页将带你在大约五分钟内从零搭建一个可运行的代理记忆。我们会记录若干事件、演进记忆、并完成召回。
 
-## Prerequisites
+## 前置条件
 
-- Node.js 18+ (or Bun / Deno equivalent, or a modern browser)
-- An embedding service. Easiest options:
-  - **Ollama** running locally with `nomic-embed-text` pulled (`ollama pull nomic-embed-text`)
-  - **OpenAI** API key (`OPENAI_API_KEY`)
-- *(Optional but recommended)* a generation-capable LLM for the event layer — Ollama with `gemma4:31b-cloud` or `OPENAI_API_KEY`
+- Node.js 18+（或对应版本的 Bun / Deno，或现代浏览器）
+- 一个嵌入服务。最简单的选择：
+  - 本地运行的 **Ollama** 并已拉取 `nomic-embed-text`（`ollama pull nomic-embed-text`）
+  - **OpenAI** API key（`OPENAI_API_KEY`）
+- *（可选但推荐）* 用于事件层的生成型 LLM —— 例如 Ollama 上的 `gemma4:31b-cloud`，或 `OPENAI_API_KEY`
 
-## Install
+## 安装
 
 ::: code-group
 ```bash [pnpm]
@@ -27,11 +27,11 @@ bun add memorai
 ```
 :::
 
-Memorai has no required peer dependencies. Pull in `better-sqlite3` only if you want the SQLite adapter.
+Memorai 没有必需的 peer 依赖。只有当你需要 SQLite 适配器时，才需要引入 `better-sqlite3`。
 
-## Minimum example — raw timeline only
+## 最小示例 —— 仅原始时间轴
 
-The simplest setup uses the in-memory storage adapter and an Ollama embedder. No LLM. Memorai will store everything verbatim and recall by semantic similarity + BM25:
+最简单的配置使用内存存储适配器与 Ollama 嵌入器。没有 LLM。Memorai 会逐字存储一切，并通过语义相似度 + BM25 召回：
 
 ```typescript
 import { Memorai, MemoryAdapter, OllamaEmbeddingService } from 'memorai';
@@ -61,11 +61,11 @@ console.log(result.memories[0].summary);
 // → "I love sourdough bread"
 ```
 
-At this point you have the **multi-pathway retrieval** layer: semantic + BM25 + tag + temporal + identity routes, all fused via RRF. Every returned memory carries `provenance.pathways` that tells you which routes surfaced it.
+此时你已经拥有了**多路径召回**层：语义 + BM25 + 标签 + 时间 + 身份等路径全部通过 RRF 融合。每条返回的记忆都带有 `provenance.pathways`，告诉你它来自哪些路径。
 
-## Recommended example — with the MemoryEvent layer
+## 推荐示例 —— 启用 MemoryEvent 层
 
-This is the configuration that produced **+15pp on LoCoMo** in our benchmarks. Add an `llm` to the config and Memorai auto-wires `LLMEventIdentifier`. During `evolve()`, raw turns get turned into canonical state / transition / happening events:
+这是我们在基准测试中**在 LoCoMo 上取得 +15pp** 的配置。在配置中加上 `llm`，Memorai 会自动接上 `LLMEventIdentifier`。在 `evolve()` 期间，原始轮次会被转换为规范化的 state / transition / happening 事件：
 
 ```typescript
 import {
@@ -104,22 +104,22 @@ for (const m of result.memories) {
 // Note: "I'm vegetarian" is NOT returned — superseded states drop out by default.
 ```
 
-To replay the audit trail and include superseded states:
+如果要回放审计轨迹并包含被替代的状态：
 
 ```typescript
 await memory.recall("...", { excludeInvalidatedEvents: false });
 ```
 
-To see every event the agent has ever known, ignoring recall ranking:
+如果要查看代理曾经知道的每一个事件、忽略召回排序：
 
 ```typescript
 const all = await memory.listEvents();
 const currentlyBelieved = await memory.listEvents({ excludeInvalidated: true });
 ```
 
-## Browser-persisted example
+## 浏览器持久化示例
 
-Same code, but use `IndexedDBAdapter` so memory survives reloads:
+代码相同，但使用 `IndexedDBAdapter`，让记忆在页面刷新后依然存在：
 
 ```typescript
 import { Memorai, IndexedDBAdapter, OpenAIEmbeddingService } from 'memorai';
@@ -131,11 +131,11 @@ const memory = new Memorai({
 });
 ```
 
-The IndexedDB adapter handles schema migrations automatically and re-hydrates the BM25 index on first query.
+IndexedDB 适配器会自动处理 schema 迁移，并在第一次查询时重新加载 BM25 索引。
 
-## Node-persisted example
+## Node 持久化示例
 
-For Node, use SQLite (you supply the `better-sqlite3` instance):
+在 Node 中，使用 SQLite（由你自己提供 `better-sqlite3` 实例）：
 
 ```typescript
 import Database from 'better-sqlite3';
@@ -156,11 +156,11 @@ process.on('SIGINT', async () => {
 });
 ```
 
-`memory.close()` flushes a final `evolve()` (when `evolution.mode = "auto"`) and closes the storage adapter.
+`memory.close()` 会刷出最后一次 `evolve()`（当 `evolution.mode = "auto"`），并关闭存储适配器。
 
-## Reading the result
+## 读取召回结果
 
-`recall()` returns `RecallResult.memories: RecalledMemory[]`. Each entry tells you where it came from:
+`recall()` 返回 `RecallResult.memories: RecalledMemory[]`。每一项都会告诉你它的来源：
 
 ```typescript
 interface RecalledMemory {
@@ -183,14 +183,14 @@ interface RecalledMemory {
 }
 ```
 
-Branch on `eventKind` to render event-derived memories differently, and use `provenance.pathways` to debug "why was this returned?".
+根据 `eventKind` 分支以不同方式渲染事件衍生记忆，并使用 `provenance.pathways` 来调试"为什么这条结果被返回？"。
 
-## What's next
+## 下一步
 
-| If you want to… | Go to |
+| 如果你想…… | 前往 |
 |---|---|
-| See more recipes (supersede flow, cross-agent, reAnnotate, custom EventIdentifier) | [Examples](/guide/examples) |
-| Understand why the three-tier model exists | [Concepts → Overview](/concepts/overview) |
-| Configure `MemoraiConfig` properly | [API → Memorai](/api/memorai) |
-| Plug in your own storage | [API → Storage Adapter](/api/storage) |
-| Run on Bun / Deno / Browser | [Runtime Compatibility](/runtime/compatibility) |
+| 看更多示例（替代流程、跨代理、reAnnotate、自定义 EventIdentifier） | [示例](/zh/guide/examples) |
+| 理解三层模型存在的原因 | [概念 → 总览](/zh/concepts/overview) |
+| 正确配置 `MemoraiConfig` | [API → Memorai](/zh/api/memorai) |
+| 接入自定义存储 | [API → Storage Adapter](/zh/api/storage) |
+| 在 Bun / Deno / 浏览器上运行 | [运行时兼容性](/zh/runtime/compatibility) |

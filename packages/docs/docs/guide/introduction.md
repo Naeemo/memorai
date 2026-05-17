@@ -1,37 +1,75 @@
 # Introduction
 
-**Memorai** is a runtime-agnostic, multimodal streaming memory layer for AI agents. It runs anywhere JavaScript runs — browsers, Node.js, Bun, Deno — and brings the ideas behind [StreamingClaw's StreamingMemory](https://jackyu6.github.io/StreamingClaw-Page/) architecture to the TypeScript ecosystem.
+Memorai is a TypeScript memory library for AI agents. It records what happens, identifies the meaningful events, lets agents recall them across long horizons — and is designed so the **original timeline is never lost**, even when the model that interprets it gets upgraded.
 
-Where traditional agent memory dumps a flat text history into a context window, Memorai treats memory as a **streaming, evolving, multimodal graph**: segments compress into atomic actions, atomic actions aggregate into events, and retrieval is concurrent, temporal, and command-driven.
+It's runtime-agnostic (Browser / Node / Bun / Deno), pluggable end-to-end (storage / embeddings / LLM / extractor / identifier / reranker), and ships with sensible defaults.
 
-## Why Memorai?
+## The mental model
 
-| Problem | Traditional approach | Memorai |
+Memorai stores three layers per memory, each with a different lifecycle:
+
+| Layer | What it holds | Lifetime |
 |---|---|---|
-| **Information loss** | Store only text summaries | Multimodal memory nodes — vision, audio, embeddings, text together |
-| **Inefficiency** | Dump all memory into context | Hierarchical evolution — compress and structure, retrieve only what's needed |
-| **Rigid memory** | Flat, isolated entries | Hierarchical and evolvable — segments → atomic actions → events, with add/update/delete |
+| **Tier 1 — raw timeline** | Verbatim events as they happened: text, image refs, audio, video, files. | Append-only. Never rewritten. |
+| **Tier 2 — annotations** | Derived summaries, tags, embeddings, knowledge triples. | Regenerable — call [`reAnnotate()`](/api/memorai#reannotate) to refresh with a better extractor. |
+| **Tier 2.5 — MemoryEvents** | Semantic events identified from Tier 1: state assertions, transitions, happenings. State events have a supersede lifecycle. | Lifecycle-managed. New events can invalidate older ones. |
+| **Tier 3 — indexes** | BM25, vector, tag, time, participant. | Disposable. Rebuilt from Tiers 1+2 automatically. |
 
-## Core Principles
+The point of the split: **Tier 1 is the eternal record; everything above it is an interpretation that can evolve.** When a better LLM comes out, you can re-extract Tier 2 across the whole history. When you change your mind about what counts as a meaningful event, you can re-identify Tier 2.5. The raw timeline doesn't care.
 
-1. **Multimodal-first.** A memory node can hold video frames, audio clips, embedding vectors, structured metadata, and text — all aligned by timestamp.
-2. **Hierarchical evolution.** Short-term memories (fine-grained, recent) automatically evolve into long-term memories (abstract, structured) through online induction and merging.
-3. **Efficient retrieval.** Command-driven, concurrent, with self-directed temporal traversal (forward, reverse, salience-first).
-4. **Runtime-agnostic.** The same code runs in Browser (IndexedDB), Node.js (SQLite), Bun, and Deno. Storage is fully abstracted.
-5. **Cross-agent unified.** Standardised storage and retrieval interfaces, with differentiated memory management per agent role.
-6. **Streaming-native.** Designed for continuous, real-time input — not batch processing of offline files.
+## What problem this solves
 
-## Features at a glance
+Most agent memory libraries collapse memory into a single layer: at ingest time the LLM produces a summary, that summary is stored, and the raw conversation is discarded or buried. When the model improves, the old memories don't benefit. When you discover that your extraction prompt was wrong, you can't go back. When two pieces of information contradict — _"Alice is vegetarian"_ vs _"Alice is now eating fish"_ — both stay in storage and recall returns both, leaving the agent to figure out what's currently true.
 
-- **Multimodal Memory Nodes** — text, images, audio, and video references with embeddings and metadata
-- **Hierarchical Memory Evolution (HME)** — raw segments → atomic actions → events, with automatic online merging
-- **Pluggable Storage** — IndexedDB (browser), SQLite (server), in-memory (testing), or bring your own
-- **Pluggable Embeddings** — OpenAI, Ollama, or any custom embedding service
-- **Runtime Agnostic** — the same code runs anywhere JavaScript runs
-- **Cross-Agent Memory Profiles** — agents with different read/write policies share unified storage
+Memorai separates these concerns explicitly:
+
+- **Raw events are sacred.** They're stored verbatim and never modified.
+- **Interpretations are disposable.** Re-run the extractor whenever you want.
+- **Semantic events have a lifecycle.** A new state assertion supersedes the old one; recall filters out invalidated facts by default but you can replay history if you need to.
+
+## Recall, end to end
+
+Recall isn't a single-route search. Memorai runs five retrieval pathways in parallel:
+
+```
+question ──► embed ──┬─► semantic vector search       ─┐
+                     ├─► BM25 sparse retrieval         │ RRF fusion
+                     ├─► tag / topic match             ├──► ranked candidates
+                     ├─► temporal window filter        │
+                     └─► identity (userId/actor/target)─┘
+```
+
+…plus, when the MemoryEvent layer is enabled, a sixth and seventh path over events: semantic and BM25 over the canonical event descriptions, with valid-time filtering so superseded states drop out by default.
+
+All paths feed into Reciprocal Rank Fusion. Each returned memory carries pathway-level provenance — you see exactly which routes surfaced it.
+
+## What's pluggable
+
+Almost everything. Memorai ships defaults but every layer can be swapped:
+
+| Layer | Built-in | Bring your own |
+|---|---|---|
+| Storage | `MemoryAdapter`, `SQLiteAdapter`, `IndexedDBAdapter` | Implement [`StorageAdapter`](/api/storage) |
+| Event store | `InMemoryEventStore` | Implement [`EventStore`](/api/event-store) |
+| Embeddings | `OllamaEmbeddingService`, `OpenAIEmbeddingService` | Implement [`EmbeddingService`](/api/embeddings) |
+| Extractor | `WrapExtractor`, `LightExtractor`, `LLMExtractor` | Implement `Extractor` |
+| Event identifier | `LLMEventIdentifier` | Implement [`EventIdentifier`](/api/event-identifier) |
+| Reranker | `LLMReranker` | Implement `RerankerService` |
+| Compression | `BrowserImageCompressor`, `PassthroughCompressor` | Implement `CompressionService` |
+
+## Who Memorai is for
+
+- **Conversational agents** that need to remember user preferences and history across sessions.
+- **Streaming agents** that ingest a continuous flow of observations (screen captures, sensor data, messages).
+- **Multi-agent systems** where different roles share storage but read at different granularities.
+- **Browser-side AI** where you want everything to run client-side with IndexedDB persistence.
 
 ## Where to go next
 
-- [Getting Started](/guide/getting-started) — install and write your first memory in a few lines.
-- [Concepts](/concepts/overview) — how memory nodes, evolution, and retrieval fit together.
-- [API Reference](/api/memorai) — the `Memorai` class and its surrounding services.
+| If you want to… | Read |
+|---|---|
+| Run the first example | [Getting Started](/guide/getting-started) |
+| See real recipes | [Examples](/guide/examples) |
+| Understand the architecture | [Concepts → Overview](/concepts/overview) |
+| Build a custom storage adapter | [API → Storage Adapter](/api/storage) |
+| See how Memorai scores on public benchmarks | [Benchmarks](/guide/benchmarks) |

@@ -1,10 +1,10 @@
-# Examples
+# 示例
 
-Short, focused recipes for the most common Memorai patterns. Each one is copy-pasteable and assumes you've completed [Getting Started](/guide/getting-started).
+围绕最常见的 Memorai 用法，提供简短、聚焦的示例。每个示例都可复制粘贴，并假设你已完成[快速开始](/zh/guide/getting-started)。
 
-## Recipe: state events and supersede
+## 示例：状态事件与替代
 
-Track a user's preferences and let new statements supersede old ones automatically.
+跟踪用户偏好，让新陈述自动替代旧陈述。
 
 ```typescript
 const memory = new Memorai({
@@ -45,13 +45,13 @@ console.log(audit.memories.map((m) => m.summary));
 // → ["Alice started eating fish again", "Alice is vegetarian"]
 ```
 
-::: tip How supersede works
-When the EventIdentifier produces a new `state` event with `supersedes: [oldEventId]`, Memorai sets the old event's `invalidatedAt` to the new event's `occurredAt`. The old record stays in storage — `recall` just filters it out by default.
+::: tip 替代的工作原理
+当 EventIdentifier 产生带有 `supersedes: [oldEventId]` 的新 `state` 事件时，Memorai 会把旧事件的 `invalidatedAt` 设为新事件的 `occurredAt`。旧记录仍在存储中 —— `recall` 只是默认把它过滤掉。
 :::
 
-## Recipe: time-window recall
+## 示例：时间窗召回
 
-"What did the user mention last week?"
+"用户上周提到过什么？"
 
 ```typescript
 const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -61,9 +61,9 @@ const result = await memory.recall("anything important", {
 });
 ```
 
-Both node-level and event-level retrieval honor `timeRange`. State events whose `occurredAt` falls outside the window are dropped from the event pathway, regardless of whether they're still valid.
+节点层和事件层的召回都尊重 `timeRange`。`occurredAt` 落在窗口之外的状态事件会从事件路径中被剔除，无论它们是否仍然有效。
 
-If you just want everything in the window — no semantic ranking — use `recallByTime`:
+如果你只想要窗口内的全部内容 —— 不做语义排序 —— 使用 `recallByTime`：
 
 ```typescript
 const today = await memory.recallByTime({
@@ -72,9 +72,9 @@ const today = await memory.recallByTime({
 }, { topK: 100, traversalOrder: 'forward' });
 ```
 
-## Recipe: upgrade the extractor across history
+## 示例：在整段历史上升级抽取器
 
-When a better LLM ships, refresh Tier 2 annotations on every existing memory — without losing the raw timeline:
+当更好的 LLM 上线时，刷新每条已有记忆的 Tier 2 注解 —— 同时不丢失原始时间轴：
 
 ```typescript
 import { LLMExtractor } from 'memorai';
@@ -91,13 +91,13 @@ const result = await memory.reAnnotate({
 console.log(`Re-annotated ${result.reannotated}, ${result.errors.length} errors`);
 ```
 
-This regenerates `node.annotations.summary` / `facts` / `tags` / `triples` and rebuilds the embeddings. The raw `node.raw` is never touched.
+这会重新生成 `node.annotations.summary` / `facts` / `tags` / `triples`，并重建嵌入。原始的 `node.raw` 始终不会被改动。
 
-Set `skipEmbedding: true` to keep existing embeddings when only the annotation prose has changed.
+设置 `skipEmbedding: true` 可以在仅注解文本变更时保留现有嵌入。
 
-## Recipe: cross-agent memory with role policies
+## 示例：带角色策略的跨代理记忆
 
-Two agents share one storage but see it through different lenses:
+两个代理共享同一存储，但以不同的视角看待：
 
 ```typescript
 const storage = new MemoryAdapter();
@@ -144,11 +144,11 @@ const proactiveAgent = new Memorai({
 // Both write to the same store; each reads at its own level.
 ```
 
-`write()` enforces the agent's `writePolicy` — attempting to write a disallowed level or modality throws.
+`write()` 会强制执行代理的 `writePolicy` —— 尝试写入不允许的层或模态会抛错。
 
-## Recipe: custom EventIdentifier
+## 示例：自定义 EventIdentifier
 
-If you need domain-specific event extraction (legal, medical, gaming…), implement your own:
+如果你需要领域特化的事件抽取（法律、医疗、游戏……），实现你自己的：
 
 ```typescript
 import type {
@@ -191,11 +191,11 @@ const memory = new Memorai({
 });
 ```
 
-The identifier can be a pure-rules implementation, a small local model, a hybrid LLM call — Memorai doesn't care, it just needs `identify(ctx)` to return events.
+识别器可以是纯规则实现、小型本地模型、混合 LLM 调用 —— Memorai 并不关心实现细节，它只需要 `identify(ctx)` 返回事件。
 
-## Recipe: handle multimodal events
+## 示例：处理多模态事件
 
-Pass non-text content via the `content` shape — image, audio, video, file:
+通过 `content` 形状传入非文本内容 —— 图像、音频、视频、文件：
 
 ```typescript
 memory.recordEvent({
@@ -230,23 +230,23 @@ memory.recordEvent({
 });
 ```
 
-If you configure a `CompressionService`, image / audio / video refs get compressed before storage. Otherwise they're stored verbatim.
+如果你配置了 `CompressionService`，图像 / 音频 / 视频的引用会在存储前被压缩。否则它们会被逐字存储。
 
-## Standalone runnable examples
+## 独立可运行示例
 
-These full programs live under `packages/memorai/examples/`:
+下列完整程序位于 `packages/memorai/examples/` 目录下：
 
-| File | Runtime | What it shows |
+| 文件 | 运行时 | 展示内容 |
 |---|---|---|
-| `browser-assistant.ts` | Browser | IndexedDB-persisted assistant with screenshot capture |
-| `node-server.ts` | Node | HTTP API wrapping Memorai with SQLite persistence |
-| `cross-agent.ts` | Node | Two agents sharing a store with different role policies |
-| `openclaw-agent.ts` | Node | Heartbeat-driven agent that records messages and queries by relevance |
+| `browser-assistant.ts` | 浏览器 | 带屏幕截图捕获的 IndexedDB 持久化助手 |
+| `node-server.ts` | Node | 包装 Memorai 的 HTTP API，使用 SQLite 持久化 |
+| `cross-agent.ts` | Node | 两个代理共享一个存储，使用不同的角色策略 |
+| `openclaw-agent.ts` | Node | 心跳驱动的代理，记录消息并按相关性查询 |
 
-Open any of them, copy the parts you need, and adapt to your stack.
+打开任意一个，复制你需要的部分，并适配到你的技术栈。
 
-## Where to go next
+## 下一步去哪里
 
-- [Concepts → Memory Events](/concepts/memory-events) — full lifecycle of state / transition / happening events
-- [Concepts → Retrieval](/concepts/retrieval) — what each retrieval pathway actually does
-- [API → Memorai](/api/memorai) — every public method, every option
+- [概念 → Memory Events](/zh/concepts/memory-events) —— state / transition / happening 事件的完整生命周期
+- [概念 → 召回](/zh/concepts/retrieval) —— 每条召回路径实际做了什么
+- [API → Memorai](/zh/api/memorai) —— 每个公开方法、每个选项

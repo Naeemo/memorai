@@ -4,35 +4,67 @@ layout: home
 hero:
   name: Memorai
   text: Streaming memory for AI agents
-  tagline: Runtime-agnostic, multimodal memory with hierarchical evolution. Browser • Node.js • Bun • Deno.
+  tagline: Three-tier storage. Multi-pathway recall. Semantic events that supersede each other. Runtime-agnostic — Browser, Node.js, Bun, Deno.
   actions:
     - theme: brand
       text: Get Started
+      link: /guide/getting-started
+    - theme: alt
+      text: Why Memorai
       link: /guide/introduction
     - theme: alt
-      text: Architecture
-      link: /concepts/overview
-    - theme: alt
-      text: View on GitHub
+      text: GitHub
       link: https://github.com/Naeemo/memorai
 
 features:
-  - icon: 🎞️
-    title: Multimodal Memory Nodes
-    details: Store text, images, audio, and video references together with embeddings and structured metadata — without forced text conversion.
-  - icon: 🌱
-    title: Hierarchical Memory Evolution
-    details: Raw segments are merged into atomic actions and aggregated into events automatically — short-term recall plus long-term abstraction.
+  - icon: 🗂️
+    title: Three-tier storage
+    details: Tier 1 raw events (immutable timeline). Tier 2 derived annotations (regenerable via reAnnotate). Tier 3 indexes. Upgrade the model — keep the past.
+  - icon: 🧩
+    title: Semantic event layer
+    details: An LLM identifier turns raw turns into state / transition / happening events with supersede lifecycle. Recall returns what the agent currently believes, not every raw utterance.
+  - icon: 🔀
+    title: Multi-pathway recall
+    details: Semantic + BM25 + tag + temporal + identity routes fan out in parallel and fuse via Reciprocal Rank Fusion. Every result carries pathway-level provenance.
   - icon: 🔌
-    title: Pluggable Storage
-    details: IndexedDB in the browser, SQLite or in-memory on the server, or bring your own adapter. The interface is small and runtime-agnostic.
-  - icon: 🧠
-    title: Pluggable Embeddings
-    details: OpenAI, Ollama, or any custom embedding service — model choice is yours.
+    title: Pluggable everything
+    details: Storage adapters (Memory / SQLite / IndexedDB / your own). Embedders (Ollama / OpenAI / custom). LLMs, extractors, identifiers, rerankers — every layer is swappable.
   - icon: 🌐
-    title: Runtime Agnostic
-    details: One package, four runtimes. The core depends only on Web Standard APIs.
+    title: Runtime agnostic
+    details: One TypeScript package, four runtimes. Core depends only on Web Standard APIs.
   - icon: 🤝
-    title: Cross-Agent Profiles
-    details: Different agents share unified storage with differentiated read/write policies.
+    title: Cross-agent profiles
+    details: Multiple agents share one store with per-agent read/write policies. Reasoning agents see episodes; proactive agents see segments.
 ---
+
+<div style="max-width: 960px; margin: 4rem auto 0; padding: 0 1.5rem;">
+
+## In thirty seconds
+
+```typescript
+import { Memorai, MemoryAdapter, OllamaEmbeddingService } from 'memorai';
+
+const memory = new Memorai({
+  storage: new MemoryAdapter(),
+  embedding: new OllamaEmbeddingService({ model: 'nomic-embed-text' }),
+  llm: yourLLMService,  // auto-wires LLMExtractor + LLMEventIdentifier
+});
+
+// Record events from a conversation
+memory.recordEvent({
+  at: Date.now(),
+  actor: 'user',
+  content: { kind: 'message', text: 'I just started eating fish again' },
+});
+
+await memory.evolve();  // identifies the state transition
+
+// Recall semantic events, not raw turns
+const result = await memory.recall('what does the user eat?');
+console.log(result.memories[0].summary);
+// → "User started eating fish again"
+```
+
+[Continue to Getting Started →](/guide/getting-started)
+
+</div>

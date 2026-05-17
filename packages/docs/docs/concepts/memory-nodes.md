@@ -7,8 +7,9 @@ A **memory node** is the fundamental unit of memory in Memorai. Every recorded e
 Memorai separates *what was observed* from *how we currently understand it*:
 
 - **Tier 1 — `raw`**: the original event content. Append-only. Never modified by extractors, evolution, or upgrades. This is the canonical timeline.
-- **Tier 2 — `annotations`**: derived summaries, tags, embeddings, knowledge triples. Re-extractable from Tier 1 when the model or extractor improves — see [`reAnnotate()`](/api/memorai#re-annotate).
-- **Tier 3 — indexes**: BM25, vector, tag, and time indexes maintained internally by the storage adapter. Disposable; rebuildable from Tiers 1 and 2 at any time.
+- **Tier 2 — `annotations`**: derived summaries, tags, embeddings, knowledge triples. Re-extractable from Tier 1 via [`reAnnotate()`](/api/memorai#reannotate).
+- **Tier 2.5 — `MemoryEvent`s**: semantic state / transition / happening records identified from raw nodes. Lifecycle-managed (state events can be superseded). See [Memory Events](/concepts/memory-events) — they live in a separate store from `MemoryNode`s.
+- **Tier 3 — indexes**: BM25, vector, tag, time, participant indexes maintained internally by storage adapters. Disposable; rebuildable from Tiers 1 + 2 + 2.5 at any time.
 
 ## The `MemoryNode` shape
 
@@ -56,6 +57,7 @@ interface MemoryNode {
     eventId?: string;            // Back-reference to the originating Event
     lastAccessed?: number;
     accessCount: number;
+    identifiedAt?: number;       // Set after EventIdentifier processes this node
   };
 }
 ```
@@ -74,17 +76,19 @@ A single-layer "summarize at ingest" approach (the mem0/Zep model) bakes the ext
 
 ## Memory hierarchy (levels)
 
-Within each tier, nodes are organized by aggregation level:
+Within each tier, nodes are organised by aggregation level:
 
-|                   | **Segments** (STM-like)                       | **Events** (LTM-like)                  |
-|-------------------|------------------------------------------------|----------------------------------------|
-| **Content**       | Per-recording, fine-grained                    | Aggregated, abstract summaries         |
-| **Granularity**   | High                                          | Low                                    |
-| **Recency**       | Recent (configurable window)                   | Historical                             |
-| **Evolution**     | Source material for hierarchical merge         | Result of hierarchical merge           |
-| **Retrieval**     | Direct lookup, reverse temporal                | Indexed, semantic, salience-ranked     |
+| | **Segment** | **Atomic Action** | **Episode** |
+|---|---|---|---|
+| **Granularity** | Highest — one per `recordEvent` | Merged from semantically + temporally close segments | Aggregated cluster of atomic actions |
+| **Lifecycle** | Created by `write` | Created/updated by Level-1 evolution (per write) | Created/updated by Level-2 evolution (per `evolve()`) |
+| **Use case** | Raw recall, supersede provenance | Locality-aware retrieval | "What happened around X" queries |
 
-The boundary between segments and events is hierarchical, not physical. Both live in the same storage adapter; queries can target a specific level via `RecallOptions.level`.
+The boundary between levels is hierarchical, not physical. All three levels live in the same storage adapter; queries can target a specific level via `RecallOptions.level`.
+
+::: tip Episodes are not MemoryEvents
+The HME `episode` level is a *temporal cluster* of raw segments. It is **not** the same as a [`MemoryEvent`](/concepts/memory-events), which is a *semantic* record (state / transition / happening). Both run over the same raw timeline; they answer different questions.
+:::
 
 ## A worked example
 

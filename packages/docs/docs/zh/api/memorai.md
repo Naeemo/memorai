@@ -1,8 +1,8 @@
 # `Memorai`
 
-The main entry point. One instance wires storage, embedding, extraction, event identification, evolution, retrieval, and reranking into a single object.
+主要入口。一个实例将存储、嵌入、抽取、事件识别、演进、召回与重排串联到单个对象中。
 
-## Construction
+## 构造
 
 ```typescript
 class Memorai {
@@ -31,23 +31,23 @@ interface MemoraiConfig {
 }
 ```
 
-### Auto-wiring
+### 自动装配
 
-If you don't pass these, Memorai picks sensible defaults:
+如果你不提供下列字段，Memorai 会选取合理的默认值：
 
-| Field | Default when omitted |
+| 字段 | 省略时的默认值 |
 |---|---|
-| `extractor` | `LLMExtractor` when `llm` is set, else `LightExtractor` |
-| `identifier` | `LLMEventIdentifier` when `llm` is set, else **nothing** (no event layer) |
+| `extractor` | 设置 `llm` 时使用 `LLMExtractor`，否则使用 `LightExtractor` |
+| `identifier` | 设置 `llm` 时使用 `LLMEventIdentifier`，否则**不启用**（不启用事件层） |
 | `events` | `InMemoryEventStore` |
 | `evolution.mode` | `"auto"` |
-| `agentProfile` | a default reasoning-role profile |
+| `agentProfile` | 默认的 reasoning 角色配置 |
 
-So **the headline 0.4.0 configuration is just `{ storage, embedding, llm }`** — that enables both LLM extraction and LLM event identification.
+因此 **0.4.0 的标志性配置就是 `{ storage, embedding, llm }`** —— 这会同时启用 LLM 抽取与 LLM 事件识别。
 
-## Public API — Event API
+## 公共 API —— 事件 API
 
-The primary read/write surface. Event-shaped writes, natural-language reads.
+主要的读写接口。事件形态的写入，自然语言形态的读取。
 
 ### `recordEvent`
 
@@ -55,7 +55,7 @@ The primary read/write surface. Event-shaped writes, natural-language reads.
 recordEvent(event: Event): RecordHandle;
 ```
 
-Record a single event. Returns a `RecordHandle` immediately — extraction runs in the background. Await `handle.nodes` to block until extraction completes, or fire-and-forget for low-latency hot paths.
+记录单个事件。立即返回 `RecordHandle` —— 抽取在后台运行。`await handle.nodes` 可阻塞直到抽取完成，或者在低延迟热路径上即发即忘。
 
 ```typescript
 interface Event {
@@ -103,7 +103,7 @@ interface RecordHandle {
 recordEvents(events: Event[]): RecordHandle;
 ```
 
-Record many events as a single batch. Events are processed in array order.
+以单个批次记录多个事件。事件按数组顺序处理。
 
 ### `recall`
 
@@ -116,7 +116,7 @@ recallByTime(range: { start: number; end: number }, opts?: RecallOptions): Promi
 recallByTag(tags: string[], opts?: RecallOptions): Promise<RecallResult>;
 ```
 
-Natural-language recall over both raw nodes and MemoryEvents.
+在原始节点和 MemoryEvents 之上进行自然语言召回。
 
 ```typescript
 interface RecallOptions {
@@ -175,14 +175,14 @@ interface RecalledMemory {
 }
 ```
 
-`recall` runs:
+`recall` 的执行步骤：
 
-1. **Node-level pathways**: semantic + BM25 + tag + temporal + identity fan-out over raw `MemoryNode`s, fused via RRF.
-2. **Event-level pathways** (when an identifier is configured): semantic + BM25 over `MemoryEvent`s, filtered by `validAt` and `userId`.
-3. **Outer fusion**: both surfaces fused via RRF; raw-node hits whose IDs appear in a surfaced event's `sourceNodeIds` are deduped.
-4. **Optional reranker pass** when `MemoraiConfig.reranker` is set.
+1. **节点级通路**：在原始 `MemoryNode` 之上执行语义召回 + BM25 + 标签 + 时间 + 身份扇出，通过 RRF 融合。
+2. **事件级通路**（当配置了识别器时）：在 `MemoryEvent` 之上执行语义召回 + BM25，并按 `validAt` 与 `userId` 过滤。
+3. **外层融合**：两个层面通过 RRF 融合；如果原始节点命中的 ID 出现在已浮现事件的 `sourceNodeIds` 中，则去重。
+4. 设置了 `MemoraiConfig.reranker` 时，进行**可选的重排**。
 
-## MemoryEvent management
+## MemoryEvent 管理
 
 ### `identifyRecent`
 
@@ -190,9 +190,9 @@ interface RecalledMemory {
 identifyRecent(opts?: { batchSize?: number; maxBatches?: number }): Promise<MemoryEvent[]>;
 ```
 
-Manually trigger event identification over un-identified segment nodes. Normally called from `evolve()`; use this if you want explicit control over identification scheduling.
+手动触发对尚未被识别的 segment 节点的事件识别。通常由 `evolve()` 调用；如果你希望显式控制识别调度，可以使用它。
 
-Idempotent — nodes with `meta.identifiedAt` set are skipped.
+幂等 —— 已设置 `meta.identifiedAt` 的节点会被跳过。
 
 ### `getEvent`
 
@@ -200,7 +200,7 @@ Idempotent — nodes with `meta.identifiedAt` set are skipped.
 getEvent(id: string): Promise<MemoryEvent | null>;
 ```
 
-Fetch a single MemoryEvent by id.
+根据 id 取回单个 MemoryEvent。
 
 ### `listEvents`
 
@@ -215,9 +215,9 @@ listEvents(opts?: {
 }): Promise<MemoryEvent[]>;
 ```
 
-List MemoryEvents with filtering. See [`EventStore`](/api/event-store) for the underlying query semantics.
+带过滤地列出 MemoryEvents。底层查询语义请参考 [`EventStore`](/zh/api/event-store)。
 
-## Management
+## 管理
 
 ### `reAnnotate`
 
@@ -234,7 +234,7 @@ reAnnotate(opts?: {
 }>;
 ```
 
-Regenerate Tier 2 annotations + Tier 3 indexes across the entire store from the immutable Tier 1 raw events. Use after upgrading the extractor or switching embedding models. See [Examples → Upgrade the extractor](/guide/examples#recipe-upgrade-the-extractor-across-history).
+基于不可变的 Tier 1 原始事件，重新生成整个存储中的 Tier 2 注释和 Tier 3 索引。在升级抽取器或切换嵌入模型后使用。参见 [示例 → 升级抽取器](/zh/guide/examples#recipe-upgrade-the-extractor-across-history)。
 
 ### `evolve`
 
@@ -242,18 +242,18 @@ Regenerate Tier 2 annotations + Tier 3 indexes across the entire store from the 
 evolve(): Promise<void>;
 ```
 
-Manually trigger Level-2 hierarchical evolution (clusters atomic_actions into episodes) and event identification. Normally auto-triggered. Use in tests, batch ingestion, or before shutdown.
+手动触发 Level-2 分层演进（将 atomic_actions 聚类为 episodes）以及事件识别。通常会自动触发。可在测试、批量摄入或关闭前使用。
 
-Multiple concurrent calls coalesce — only one evolution runs at a time.
+多个并发调用会被合并 —— 同一时刻只会运行一个演进。
 
-### Reading individual nodes
+### 读取单个节点
 
 ```typescript
 get(id: string): Promise<MemoryNode | null>;
 list(opts?: ListOptions): Promise<MemoryNode[]>;
 ```
 
-Get a specific raw `MemoryNode` by id, or list them with optional filtering. `get` and `recall` both touch `meta.lastAccessed` / `meta.accessCount`.
+按 id 获取特定的原始 `MemoryNode`，或带过滤地列出节点。`get` 和 `recall` 都会更新 `meta.lastAccessed` / `meta.accessCount`。
 
 ### `delete`
 
@@ -261,7 +261,7 @@ Get a specific raw `MemoryNode` by id, or list them with optional filtering. `ge
 delete(id: string, cascade?: boolean): Promise<void>;
 ```
 
-Delete a MemoryNode. When `cascade=true`, child nodes are deleted recursively. When `false` (default), surviving children are detached from the deleted parent.
+删除一个 MemoryNode。当 `cascade=true` 时，递归删除子节点。当 `false`（默认）时，存活的子节点会与被删除的父节点解除关联。
 
 ### `update`
 
@@ -269,7 +269,7 @@ Delete a MemoryNode. When `cascade=true`, child nodes are deleted recursively. W
 update(id: string, patch: NodePatch): Promise<MemoryNode>;
 ```
 
-Patch a node's annotations, metadata, or linkage. **Tier 1 `raw` is intentionally not patchable** — use `reAnnotate()` to regenerate Tier 2 from raw.
+修补节点的注释、元数据或链接。**Tier 1 的 `raw` 是故意不可修补的** —— 使用 `reAnnotate()` 从 raw 重新生成 Tier 2。
 
 ```typescript
 interface NodePatch {
@@ -290,9 +290,9 @@ interface NodePatch {
 close(): Promise<void>;
 ```
 
-Close all resources — storage adapter, event store, background timers. In `evolution.mode = "auto"` this also flushes a final `evolve()`.
+关闭所有资源 —— 存储适配器、事件存储、后台定时器。在 `evolution.mode = "auto"` 时还会刷写最后一次 `evolve()`。
 
-## Internal API
+## 内部 API
 
 ```typescript
 /** @internal */ write(payload: WritePayload, opts?: WriteOptions): Promise<MemoryNode>;
@@ -300,9 +300,9 @@ Close all resources — storage adapter, event store, background timers. In `evo
 /** @internal */ retrieve(query: RetrievalQuery): Promise<RetrievalResult>;
 ```
 
-These are used by extractors, tests, and benchmarks. Application code should use `recordEvent` / `recall`.
+这些 API 由抽取器、测试和基准使用。应用代码应使用 `recordEvent` / `recall`。
 
-## Full example
+## 完整示例
 
 ```typescript
 import Database from 'better-sqlite3';

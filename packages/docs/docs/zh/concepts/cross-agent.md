@@ -1,8 +1,8 @@
-# Cross-Agent Memory
+# 跨代理记忆
 
-Different agents have different memory needs, but they should share the same storage and retrieval infrastructure. Memorai expresses this with **agent memory profiles**: per-agent read/write policies on top of one shared store.
+不同的代理有不同的记忆需求,但它们应共享同一套存储与召回基础设施。Memorai 通过**代理记忆画像(agent memory profiles)**来表达这一点：在一个共享存储之上为每个代理设置读/写策略。
 
-## The `AgentMemoryProfile` shape
+## `AgentMemoryProfile` 形状
 
 ```typescript
 interface AgentMemoryProfile {
@@ -26,9 +26,9 @@ interface AgentMemoryProfile {
 }
 ```
 
-The `writePolicy` is **enforced** at `write()` time — attempting to write a node at a disallowed level, or with a modality outside the allowed list, throws. Use this to prevent a "proactive trigger" agent from accidentally writing rich `episode`-level summaries, or a vision-blind agent from storing `vision`-modality nodes.
+`writePolicy` 在 `write()` 时**强制执行** —— 尝试以不允许的级别写入节点,或写入允许列表之外的模态,都会抛错。可借此防止"主动触发"代理意外写入丰富的 `episode` 级摘要,或防止视觉盲代理存储 `vision` 模态节点。
 
-The profile is passed when constructing the `Memorai` instance:
+画像在构造 `Memorai` 实例时传入：
 
 ```typescript
 const memory = new Memorai({
@@ -51,19 +51,19 @@ const memory = new Memorai({
 });
 ```
 
-## Built-in profiles
+## 内置画像
 
-| Agent role | Write focus | Read focus |
+| 代理角色 | 写入侧重 | 读取侧重 |
 |---|---|---|
-| **Reasoning** | Global semantic evolution, cross-temporal episodes | Episodes + atomic actions, forward traversal |
-| **Proactive** | Key action triggers, state changes | Recent segments, reverse traversal, high salience |
-| **Custom** | User-defined | User-defined |
+| **Reasoning** | 全局语义演进、跨时间情节 | 情节 + 原子动作,正向遍历 |
+| **Proactive** | 关键动作触发、状态变化 | 近期片段,反向遍历,高 salience |
+| **Custom** | 用户自定义 | 用户自定义 |
 
-Reasoning agents write up high (episodes live longer); proactive agents stay near the present (segments expire fast).
+推理代理写得更高层(情节生命更长);主动代理停留在当下附近(片段过期更快)。
 
-## Sharing storage across agents
+## 跨代理共享存储
 
-Each agent gets its own `Memorai` instance, but they can point at the **same** `StorageAdapter`. The adapter is the unified store; the policies are the lenses:
+每个代理都有自己的 `Memorai` 实例,但它们可以指向**同一个** `StorageAdapter`。适配器是统一存储;策略是透镜：
 
 ```typescript
 import { Memorai, IndexedDBAdapter, OpenAIEmbeddingService } from 'memorai';
@@ -94,8 +94,8 @@ const proactive = new Memorai({
 });
 ```
 
-Now both agents read from the same memory, but each scopes its queries by default. Either agent can override the default in a per-call basis by passing explicit `level`, `traversalOrder`, or `agentRole`.
+现在两个代理从同一份记忆读取,但各自的查询默认以自身范围为限。任一代理都可以通过在调用时显式传入 `level`、`traversalOrder` 或 `agentRole` 来覆盖默认值。
 
-## Why per-agent policies, not per-call defaults?
+## 为什么是每代理策略,而非每次调用的默认值?
 
-Per-call defaults are tedious and easy to get wrong. A reasoning agent that occasionally forgets to filter by `level: 'episode'` ends up flooded with raw segments. By encoding the policy in the profile, the default behaviour matches the agent's role, and explicit overrides become rare exceptions rather than constant boilerplate.
+每次调用的默认值繁琐且容易出错。偶尔忘记按 `level: 'episode'` 过滤的推理代理,会被原始片段淹没。把策略编码到画像中,默认行为就与代理角色匹配,显式覆盖就变成罕见例外,而非持续不断的样板代码。

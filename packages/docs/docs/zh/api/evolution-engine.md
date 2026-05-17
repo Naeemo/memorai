@@ -1,14 +1,14 @@
 # `EvolutionEngine`
 
-`EvolutionEngine` runs Hierarchical Memory Evolution: Level-1 (segment → atomic_action) on every write, and Level-2 (atomic_action → episode) periodically or on demand.
+`EvolutionEngine` 运行分层记忆演进（Hierarchical Memory Evolution）：在每次写入时执行 Level-1（segment → atomic_action），并周期性或按需执行 Level-2（atomic_action → episode）。
 
-Most users never construct this directly — `new Memorai({ ... })` wires it up internally. You'd only touch it when writing tests or building a custom Memorai-like façade.
+大多数用户不需要直接构造它 —— `new Memorai({ ... })` 会在内部装配它。只有在编写测试或构建自定义的类 Memorai 外观时才会用到。
 
-::: tip Episodes vs MemoryEvents
-The HME `episode` level is a **temporal cluster** of related raw segments — a locality-aware aggregation. It's NOT the same as a [`MemoryEvent`](/concepts/memory-events), which is a semantic record (state / transition / happening). Both run over the same raw timeline; they answer different questions.
+::: tip Episodes 与 MemoryEvents
+HME 的 `episode` 层是相关原始 segment 的**时间聚类** —— 一种局部性感知的聚合。它与 [`MemoryEvent`](/zh/concepts/memory-events) **不同**，后者是语义记录（state / transition / happening）。两者运行于相同的原始时间线之上；它们回答不同的问题。
 :::
 
-## Class shape
+## 类结构
 
 ```typescript
 class EvolutionEngine {
@@ -22,7 +22,7 @@ class EvolutionEngine {
 }
 ```
 
-## Configuration
+## 配置
 
 ```typescript
 interface EvolutionConfig {
@@ -47,32 +47,32 @@ interface EvolutionConfig {
 }
 ```
 
-### Tuning advice
+### 调优建议
 
-- **Lower `semanticMergeThreshold`** to make atomic actions more inclusive. Useful when your embeddings are noisy or your domain is repetitive.
-- **Lower `sceneSimilarityThreshold`** to make episodes broader. Useful when "the same episode" spans a wider range of activity than usual.
-- **Set `autoTriggers.intervalMs > 0`** to enable a background evolve loop. Off by default so tests and benchmarks stay deterministic.
-- **`mode: "manual"`** disables all auto-triggers — useful for tests and benchmarks where you want explicit `evolve()` boundaries.
-- **Lower `stmMaxSize`** to force more aggressive promotion as STM grows.
+- **降低 `semanticMergeThreshold`** 可以让 atomic_action 更具包容性。当你的嵌入嘈杂或领域重复度高时很有用。
+- **降低 `sceneSimilarityThreshold`** 可让 episode 更宽。当"同一个 episode"覆盖比常规更宽的活动范围时很有用。
+- **设置 `autoTriggers.intervalMs > 0`** 启用后台演进循环。默认关闭，以使测试和基准保持确定性。
+- **`mode: "manual"`** 禁用所有自动触发器 —— 在你希望以显式 `evolve()` 作为边界的测试和基准中很有用。
+- **降低 `stmMaxSize`** 可在 STM 增长时强制更激进的提升。
 
-## Manual control
+## 手动控制
 
 ```typescript
 // Force a Level-2 pass right now
 await memory.evolve();
 ```
 
-Use this when:
+在以下场景使用：
 
-- Tests need deterministic state before assertions.
-- A batch ingest just finished and you want episodes (and identified MemoryEvents) available immediately.
-- The process is about to exit and you want STM flushed.
+- 测试需要在断言前获得确定状态。
+- 一次批量摄入刚结束，你希望 episodes（以及识别出的 MemoryEvents）立即可用。
+- 进程即将退出，你希望 STM 被刷写。
 
-When an `EventIdentifier` is configured, `evolve()` also runs event identification — see [Memory Events](/concepts/memory-events).
+当配置了 `EventIdentifier` 时，`evolve()` 也会运行事件识别 —— 参见 [Memory Events](/zh/concepts/memory-events)。
 
-## Algorithm sketch
+## 算法概要
 
-Level-1 (online, per write):
+Level-1（在线，每次写入）：
 
 ```
 function processSegment(segment):
@@ -86,7 +86,7 @@ function processSegment(segment):
   createAtomicAction(segment)
 ```
 
-Level-2 (manual / scheduled):
+Level-2（手动 / 调度）：
 
 ```
 function evolve():
@@ -101,10 +101,10 @@ function evolve():
       tryAggregateToEpisode(atomicAction)
 ```
 
-`compatScore` combines cosine semantic similarity and temporal continuity:
+`compatScore` 结合余弦语义相似度与时间连续性：
 
 ```
 compatScore = 0.7 * cosine(emb_a, emb_b) + 0.3 * max(0, 1 - timeGap / temporalGapThresholdMs)
 ```
 
-See [Hierarchical Evolution](/concepts/evolution) for the design rationale.
+设计理由参见 [分层演进](/zh/concepts/evolution)。

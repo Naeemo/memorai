@@ -1,11 +1,16 @@
-# Retrieval Engine
+# `RetrievalEngine`
 
-`RetrievalEngine` runs the concurrent retrieval pipeline. As with the evolution engine, you don't normally construct one yourself — `Memorai.retrieve(...)` delegates to it. This page documents the contract for completeness.
+`RetrievalEngine` runs the multi-pathway concurrent retrieval pipeline over raw `MemoryNode`s. You don't normally construct it — `Memorai.recall(...)` invokes it under the hood, then fuses its results with the event-level retrieval (see [Memory Events](/concepts/memory-events)).
 
-## Interface
+::: warning `Memorai.retrieve` is `@internal`
+For application code, use [`Memorai.recall`](/api/memorai#recall) — it wraps `retrieve`, fans out variant queries (HyDE, query expansion), fuses results with the event-level layer, and optionally reranks. The `retrieve` surface documented here is the low-level engine view.
+:::
+
+## Class shape
 
 ```typescript
-interface RetrievalEngine {
+class RetrievalEngine {
+  constructor(storage: StorageAdapter);
   retrieve(query: RetrievalQuery): Promise<RetrievalResult>;
 }
 ```
@@ -14,37 +19,43 @@ interface RetrievalEngine {
 
 ```typescript
 interface RetrievalQuery {
-  // Core query
   text?: string;                    // Natural language query
-  embedding?: number[];             // Pre-computed embedding (optional)
+  embedding?: number[];             // Pre-computed embedding
 
-  // Strategy hints (command-driven)
   strategy: 'factual' | 'temporal' | 'inferential' | 'exploratory';
-  maxDepth?: number;                // Max traversal depth
   earlyStop?: boolean;              // Stop when confidence threshold met
 
-  // Temporal constraints
   timeRange?: { start: number; end: number };
   traversalOrder?: 'forward' | 'reverse' | 'salience';
 
-  // Agent context
   agentRole?: string;               // Filter by agent role
+  userId?: string;
+  actor?: string;
+  target?: string;
   level?: 'segment' | 'atomic_action' | 'episode';
 
-  // Limits
   maxCandidates?: number;
   topK?: number;
 }
 ```
 
-When the query has `text` but no `embedding`, `Memorai.retrieve` calls the configured embedding service to fill it in before handing off to the engine. Direct callers must provide one or the other.
+When the query has `text` but no `embedding`, `Memorai.retrieve` calls the configured embedding service to fill it in before handing off to the engine.
+
+### Strategies
+
+| Strategy | Behavior |
+|---|---|
+| `factual` | Match concrete facts; favor high-confidence embeddings, narrow traversal. |
+| `temporal` | Emphasise the time axis; honour `timeRange` and `traversalOrder` strictly. |
+| `inferential` | Broader recall; pull in related atomic actions, not just direct matches. |
+| `exploratory` | Widest fan-out; for "what happened around X" questions. |
 
 ## Result
 
 ```typescript
 interface RetrievalResult {
   nodes: MemoryNode[];
-  confidence: number;               // Aggregate relevance score
+  confidence: number;
   traversalStats: {
     scanned: number;
     matched: number;
@@ -54,30 +65,28 @@ interface RetrievalResult {
 }
 ```
 
-`confidence` is an aggregate, not a per-node score. Use it to decide whether to retry with a broader strategy or fall back to a different memory store.
-
-`traversalStats` reports how the engine got to those nodes:
-
-- `scanned` — total candidates pulled from storage indexes.
-- `matched` — candidates that survived re-ranking.
-- `pruned` — candidates dropped by early-stop or strategy filters.
-- `timeMs` — wall-clock time inside `retrieve`.
+- `confidence` is an aggregate ∈ [0, 1]. Use it to decide whether to retry with a broader strategy or fall back.
+- `traversalStats` is your window into *how* the engine got there: total scanned, kept after re-rank, dropped by early-stop / strategy filters, wall-clock.
 
 ## Pipeline
 
 ```
 1. Parse query → determine strategy → set stop criteria
-2. Build candidate set (parallel):
-   ├─ Semantic search (embedding cosine)
-   ├─ Tag / keyword index lookup
+2. Build candidate set in parallel:
+   ├─ Semantic search (embedding cosine over Tier 3 vector index)
+   ├─ BM25 sparse retrieval
+   ├─ Tag / topic index lookup
    ├─ Temporal index scan (if timeRange specified)
-   └─ Salience-ranked pre-filter
-3. Concurrent re-ranking:
-   ├─ Cross-encoder scoring (if available)
-   ├─ Temporal relevance scoring
-   └─ Agent-role relevance scoring
-4. Evidence extraction → assemble result nodes
+   └─ Identity lookup (userId / actor / target)
+3. Reciprocal Rank Fusion across pathways
+4. Strategy-specific boosts (e.g. recency for "temporal", child-count for "inferential")
 5. Early-stop check → return or continue
 ```
 
-See [Concepts: Retrieval](/concepts/retrieval) for the rationale behind the parallel candidate set and the four strategies.
+The fused result is what `Memorai.recall` then outer-merges with the event-level retrieval (see [Memory Events](/concepts/memory-events#how-recall-uses-events)). Each surviving node carries hidden `_score` / `_pathways` / `_pathwayScores` annotations that get unwrapped into `RecalledMemory.provenance`.
+
+## See also
+
+- [`Memorai.recall`](/api/memorai#recall) — the public read surface most callers want
+- [Concepts: Retrieval](/concepts/retrieval) — design rationale for the four strategies and the multi-pathway design
+- [Memory Events](/concepts/memory-events#how-recall-uses-events) — how event-level retrieval composes with this engine

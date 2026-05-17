@@ -9,13 +9,13 @@ Compression matters most for STM: streaming agents can produce a lot of frames p
 ```typescript
 interface CompressionService {
   // Video: compress frame sequence → keyframes + delta
-  compressVideo(frames: ImageData[], config: VideoCompressConfig): Promise<CompressedVideo>;
+  compressVideo(frames: ImageData[], config?: VideoCompressConfig): Promise<CompressedVideo>;
 
   // Audio: compress audio clip
-  compressAudio(buffer: AudioBuffer, config: AudioCompressConfig): Promise<CompressedAudio>;
+  compressAudio(buffer: AudioBuffer, config?: AudioCompressConfig): Promise<CompressedAudio>;
 
   // Image: compress single frame
-  compressImage(image: ImageData, config: ImageCompressConfig): Promise<CompressedImage>;
+  compressImage(image: ImageData, config?: ImageCompressConfig): Promise<CompressedImage>;
 }
 ```
 

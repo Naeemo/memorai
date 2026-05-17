@@ -1,113 +1,146 @@
 # Retrieval
 
-Memorai retrieval is **command-driven**, **concurrent**, and **temporal-aware**. The agent doesn't just say "search"; it says _how_ to search, and the engine decides traversal depth and stop criteria on top of that hint.
+Memorai's `recall()` is a **fan-out + fuse** pipeline. It runs multiple retrieval pathways in parallel — semantic, BM25, tag, temporal, identity, plus event-level paths when the MemoryEvent layer is enabled — and merges them into a ranked result.
+
+Every returned memory carries `provenance.pathways` telling you exactly which routes surfaced it. That's both an audit trail and a debugging tool when results surprise you.
+
+## The pipeline
+
+```
+question ──► embed ──┬─► semantic vector search  (node-level)  ┐
+                     ├─► BM25 sparse retrieval                  │
+                     ├─► tag / topic match                      │
+                     ├─► temporal window filter                 ├──► inner RRF
+                     └─► identity (userId/actor/target)         ┘  per variant
+                                                                     │
+   variants (HyDE / queryExpansion) ───────────────────────────────► outer RRF
+                                                                     │
+   event store ─┬─► semantic over MemoryEvent.embedding ─┐           │
+                └─► BM25 over MemoryEvent.description   ─┴─► event RRF
+                                                                     ▼
+                                            outer fuse (RRF + dedup)
+                                                  │
+                                            (optional reranker)
+                                                  │
+                                                  ▼
+                                          RecallResult.memories
+```
+
+When `MemoraiConfig.reranker` is set, a final cross-encoder pass refines the top-N candidates for precision.
 
 ## Strategies
 
-Three complementary strategies, taken directly from StreamingClaw's design:
+The four strategies adjust how the node-level engine builds candidates and how it boosts results.
 
-| Strategy | When to use | Mechanism |
-|---|---|---|
-| **Command-driven** | The agent has retrieval intent | Agent passes `query + strategy hints` (depth, stop criteria). Memory engine decides traversal depth and when to stop. |
-| **High-concurrency** | Large memory corpus | Candidate matching, re-ranking, and evidence extraction all run in parallel. Avoids serial error accumulation. |
-| **Self-directed temporal traversal** | Time-sensitive queries | Engine autonomously picks traversal order: forward (causal), reverse (recent-first), salience-first (important-first). |
+| Strategy | What it does |
+|---|---|
+| `factual` | Match concrete facts; favour high-confidence embedding hits, narrow traversal. Default. |
+| `temporal` | Emphasise the time axis; honour `timeRange` and `traversalOrder` strictly. Boosts episode-level nodes. |
+| `inferential` | Broader recall; pull in atomic actions and episodes related to the matched segments. |
+| `exploratory` | Widest fan-out; useful for "what happened around X?" questions. |
 
-## Query shape
+## Recall options
 
 ```typescript
-interface RetrievalQuery {
-  // Core query
-  text?: string;                    // Natural language query
-  embedding?: number[];             // Pre-computed embedding (optional)
-
-  // Strategy hints (command-driven)
-  strategy: 'factual' | 'temporal' | 'inferential' | 'exploratory';
-  maxDepth?: number;                // Max traversal depth
-  earlyStop?: boolean;              // Stop when confidence threshold met
-
-  // Temporal constraints
+interface RecallOptions {
+  topK?: number;                        // default 10
   timeRange?: { start: number; end: number };
-  traversalOrder?: 'forward' | 'reverse' | 'salience';
+  actor?: string;
+  target?: string;
+  userId?: string;
+  modality?: Modality[];
+  level?: MemoryLevel;                  // restrict node-level pathway
+  strategy?: RetrievalStrategy;
+  traversalOrder?: TraversalOrder;
 
-  // Agent context
-  agentRole?: string;               // Filter by agent role
-  level?: 'segment' | 'atomic_action' | 'episode';
+  // Event layer
+  includeEvents?: boolean;              // default true when identifier is configured
+  excludeInvalidatedEvents?: boolean;   // default true — hide superseded states
 
-  // Limits
-  maxCandidates?: number;
-  topK?: number;
+  // LLM-precision layers (require MemoraiConfig.llm)
+  queryExpansion?: number;              // generate N paraphrases, fuse
+  hyde?: boolean;                       // hypothetical-answer embedding pathway
 }
 ```
 
-The four `strategy` values are not just labels — they steer the engine:
-
-- **`factual`** — match concrete facts; favour high-confidence embeddings, narrow traversal.
-- **`temporal`** — emphasise the time axis; honour `timeRange` and `traversalOrder` strictly.
-- **`inferential`** — broader recall; pull in related atomic actions, not just direct matches.
-- **`exploratory`** — widest fan-out; useful for "what happened around X?" questions.
-
-## Result shape
+## What you get back
 
 ```typescript
-interface RetrievalResult {
-  nodes: MemoryNode[];
-  confidence: number;               // Aggregate relevance score
-  traversalStats: {
-    scanned: number;
-    matched: number;
-    pruned: number;
-    timeMs: number;
+interface RecalledMemory {
+  id: string;
+  at: number;
+  during?: { start: number; end: number };
+  userId?: string;
+  actor?: string;
+  target?: string;
+  summary: string;                      // what the agent should read
+  description?: string;
+  tags: string[];
+  salienceScore: number;
+  evidence?: MediaPayload;
+  score: number;                        // RRF-fused score
+  level: 'segment' | 'atomic_action' | 'episode';
+
+  // Tier 2.5 marker — set when this hit came from the MemoryEvent layer
+  eventKind?: 'state' | 'transition' | 'happening';
+  sourceNodeIds?: readonly string[];
+
+  provenance?: {
+    pathways: string[];                 // ["semantic", "bm25", "event:semantic", ...]
+    fusedScore: number;
+    pathwayScores?: Record<string, number>;
   };
 }
 ```
 
-`traversalStats` is your window into _how_ the engine answered the query — useful for tuning thresholds and debugging "why didn't it find X?".
+Branch on `eventKind` to render event-derived hits differently. Inspect `provenance.pathways` to debug "why was this returned?".
 
-## Concurrent pipeline
-
-```
-1. Parse query → determine strategy → set stop criteria
-2. Build candidate set (parallel):
-   ├─ Semantic search (embedding cosine)
-   ├─ Tag / keyword index lookup
-   ├─ Temporal index scan (if timeRange specified)
-   └─ Salience-ranked pre-filter
-3. Concurrent re-ranking:
-   ├─ Cross-encoder scoring (if available)
-   ├─ Temporal relevance scoring
-   └─ Agent-role relevance scoring
-4. Evidence extraction → assemble result nodes
-5. Early-stop check → return or continue
-```
-
-The candidate set is built from multiple sources at once. The re-rankers also run in parallel. This avoids the serial-error problem where each stage's mistakes compound the next stage's.
-
-## Example
-
-The internal `retrieve()` surface returns raw `MemoryNode`s:
+## Worked example
 
 ```typescript
-const result = await memory.retrieve({
-  text: 'What was I working on in the editor?',
-  strategy: 'factual',
-  traversalOrder: 'reverse',
+const result = await memory.recall("what does the user eat?", {
   topK: 5,
+  timeRange: { start: lastMonth, end: Date.now() },
 });
 
-console.log(result.nodes.map((n) => n.annotations.summary ?? n.raw.text ?? ''));
-// → ['User opened the code editor and started typing', ...]
-console.log(result.traversalStats);
-// → { scanned: 412, matched: 18, pruned: 7, timeMs: 23 }
-```
-
-Application code should prefer the public `recall()` API, which wraps the same engine, fuses multiple variant queries, and returns flattened `RecalledMemory` objects with `provenance`:
-
-```typescript
-const result = await memory.recall('What was I working on in the editor?', {
-  topK: 5,
-  traversalOrder: 'reverse',
-});
 for (const m of result.memories) {
-  console.log(m.summary, m.provenance?.pathways);
+  if (m.eventKind === 'state') {
+    console.log(`[STATE] ${m.summary}  (paths: ${m.provenance?.pathways.join(',')})`);
+  } else if (m.eventKind) {
+    console.log(`[${m.eventKind.toUpperCase()}] ${m.summary}`);
+  } else {
+    console.log(`[raw ${m.level}] ${m.summary}`);
+  }
 }
+
+// → [STATE] User started eating fish again  (paths: event:semantic,event:bm25)
+//   [raw segment] Said over dinner: "tried sushi for the first time"  (paths: semantic)
 ```
+
+The state event ranks higher because the event-level pathways and node-level pathways both surfaced it — its raw source segment got deduped from the node-level results since the event canonicalises the same information.
+
+## Dedup behaviour
+
+When an event surfaces with `sourceNodeIds: [A, B]`, any raw-node hits for `A` or `B` are dropped from the final result. The event's canonical description is the better thing to show the answerer; the redundant raw segments would just waste a `topK` slot.
+
+To override and see both:
+
+```typescript
+await memory.recall('...', { includeEvents: false });   // node-level only
+```
+
+## When to use which surface
+
+| Question | Use |
+|---|---|
+| "What does the user prefer/believe?" | Default recall — event layer wins |
+| "What did the user say at 3pm yesterday?" | `recallByTime` + `level: 'segment'` |
+| "Walk me through everything that happened in this session" | `recallByTime` with `traversalOrder: 'forward'` |
+| "What changed in the user's diet over time?" | Default recall with `excludeInvalidatedEvents: false` to see the history |
+| "Find evidence of this specific event id" | `memory.get(id)` |
+
+## Where to go next
+
+- [Memory Events](/concepts/memory-events) — full detail on event-level recall and supersede
+- [`Memorai.recall` API](/api/memorai#recall) — every option, every return field
+- [`RetrievalEngine` API](/api/retrieval-engine) — the internal node-level engine (advanced)
