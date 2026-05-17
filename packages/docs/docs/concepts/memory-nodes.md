@@ -17,7 +17,7 @@ interface MemoryNode {
   id: string;                    // Unique identifier
   timestamp: number;             // Unix ms — when this memory ends
   duration: number;              // Duration in ms (0 for point-in-time)
-  level: 'segment' | 'atomic_action' | 'event';
+  level: 'segment' | 'atomic_action' | 'episode';
 
   userId?: string;               // Multi-tenant scope
   actor?: string;                // Who produced the event

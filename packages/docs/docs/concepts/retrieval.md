@@ -31,7 +31,7 @@ interface RetrievalQuery {
 
   // Agent context
   agentRole?: string;               // Filter by agent role
-  level?: 'segment' | 'atomic_action' | 'event';
+  level?: 'segment' | 'atomic_action' | 'episode';
 
   // Limits
   maxCandidates?: number;

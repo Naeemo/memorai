@@ -24,12 +24,12 @@ export function initAgentMemory() {
       agentId: "openclaw-main",
       role: "reasoning",
       writePolicy: {
-        levels: ["segment", "atomic_action", "event"],
+        levels: ["segment", "atomic_action", "episode"],
         modalities: ["text"],
         salienceBoost: 1,
       },
       readPolicy: {
-        defaultLevel: "event",
+        defaultLevel: "episode",
         defaultTraversal: "reverse",
         timeHorizonMs: 7 * 24 * 60 * 60 * 1000,
       },

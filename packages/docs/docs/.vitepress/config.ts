@@ -43,6 +43,7 @@ export default defineConfig({
           items: [
             { text: "Overview", link: "/concepts/overview" },
             { text: "Memory Nodes", link: "/concepts/memory-nodes" },
+            { text: "Memory Events", link: "/concepts/memory-events" },
             { text: "Hierarchical Evolution", link: "/concepts/evolution" },
             { text: "Retrieval", link: "/concepts/retrieval" },
             { text: "Cross-Agent Memory", link: "/concepts/cross-agent" },

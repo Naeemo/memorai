@@ -22,7 +22,7 @@ export class IndexedDBAdapter implements StorageAdapter {
   private readonly storeName = "memories";
   // v3: salience index keyPath moved from "payload.salienceScore" to
   // "annotations.salienceScore" (Memorai 0.3.0 raw/annotations split).
-  private readonly version = 3;
+  private readonly version = 4;
   private bm25 = new BM25Index();
   private bm25Hydrated = false;
 
@@ -45,6 +45,7 @@ export class IndexedDBAdapter implements StorageAdapter {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         const tx = (event.target as IDBOpenDBRequest).transaction;
+        const oldVersion = event.oldVersion;
         let store: IDBObjectStore;
         if (!db.objectStoreNames.contains(this.storeName)) {
           store = db.createObjectStore(this.storeName, { keyPath: "id" });
@@ -65,6 +66,21 @@ export class IndexedDBAdapter implements StorageAdapter {
         ensureIndex(store, "userId", "userId");
         ensureIndex(store, "actor", "actor");
         ensureIndex(store, "target", "target");
+
+        // v4: MemoryLevel "event" → "episode" rename. Migrate existing rows.
+        if (oldVersion > 0 && oldVersion < 4) {
+          const cursorReq = store.openCursor();
+          cursorReq.onsuccess = (ev) => {
+            const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
+            if (!cursor) return;
+            const node = cursor.value as MemoryNode & { level: string };
+            if ((node.level as string) === "event") {
+              node.level = "episode";
+              cursor.update(node);
+            }
+            cursor.continue();
+          };
+        }
       };
     });
   }

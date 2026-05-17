@@ -21,7 +21,7 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
       semanticMergeThreshold: 0.82,
       temporalGapThresholdMs: 60000,
       sceneSimilarityThreshold: 0.78,
-      eventTimeWindowMs: 300000,
+      episodeTimeWindowMs: 300000,
       mode: "manual",
       stmMaxSize: 50,
     },
@@ -80,7 +80,7 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
       text: needle.query,
       strategy: "factual",
       topK: TOP_K,
-      level: "event",
+      level: "episode",
       earlyStop: false,
     });
     evolvedLatencies.push(performance.now() - start);

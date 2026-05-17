@@ -1,6 +1,6 @@
 # Memorai Architecture
 
-> **Version:** 0.3.0
+> **Version:** 0.4.0
 > **Date:** 2026-05-17
 > **Based on:** StreamingClaw StreamingMemory (arXiv:2603.22120v2) + mem0/Letta lessons + production benchmark feedback
 > **Goal:** A runtime-agnostic, multimodal **event-based** memory layer for AI agents — an "efficient memory that never forgets".
@@ -51,7 +51,7 @@ Memorai exposes three interface layers, ordered by abstraction:
 │  Memory API (Internal — implementation surface)                  │
 │  write(WritePayload) / writeBatch / evolve / retrieve             │
 │  - Structured MemoryNode { summary, tags, salience, modality }    │
-│  - Hierarchical evolution (segment → atomic_action → event)       │
+│  - Hierarchical evolution (segment → atomic_action → episode)     │
 │  - Multi-strategy retrieval (factual / temporal / inferential …)  │
 └──────────────────────────────────────────────────────────────────┘
                               │
@@ -213,8 +213,8 @@ interface MemoryNode {
   
   // --- Hierarchical linking ---
   hierarchy: {
-    level: 'segment' | 'atomic_action' | 'event';
-    parentId?: string;           // For atomic_action → event linking
+    level: 'segment' | 'atomic_action' | 'episode';
+    parentId?: string;           // For atomic_action → episode linking
     childrenIds?: string[];      // For event → atomic_actions
     mergedFrom?: string[];       // IDs of nodes merged into this one
   };
@@ -327,7 +327,7 @@ interface QueryOpts {
   offset?: number;
   orderBy?: 'timestamp' | 'salience' | 'lastAccessed';
   order?: 'asc' | 'desc';
-  level?: 'segment' | 'atomic_action' | 'event';
+  level?: 'segment' | 'atomic_action' | 'episode';
 }
 ```
 
@@ -363,7 +363,7 @@ interface EvolutionConfig {
   
   // Atomic Action → Event thresholds
   sceneSimilarityThreshold: number;   // Scene consistency (default: 0.80)
-  eventTimeWindowMs: number;          // Max span for an event (default: 300000)
+  episodeTimeWindowMs: number;        // Max span for an episode (default: 300000)
   
   // Trigger conditions
   autoEvolveIntervalMs: number;     // Background evolution (default: 60000)
@@ -419,7 +419,7 @@ interface RetrievalQuery {
   
   // Agent context
   agentRole?: string;               // Filter by agent role
-  level?: 'segment' | 'atomic_action' | 'event';
+  level?: 'segment' | 'atomic_action' | 'episode';
   
   // Limits
   maxCandidates?: number;
@@ -526,7 +526,7 @@ interface ExtractContext {
 5. **Embedding.** Compute `embedding` from `summary` (and `description` if present) via the injected `EmbeddingService`. Cached by content hash so identical content doesn't re-embed.
 6. **Relationship inference.** If `target` is present, attach a `{ kind: "interaction", from: actor, to: target }` triple to `meta`. Used for `queryByRelationship`.
 7. **Splitting.** Long content (e.g., a 30-minute video transcript) may be split into multiple `WritePayload`s along sentence/scene boundaries; the originals are linked via shared `event_id` in `meta`.
-8. **Write.** Pass the resulting `WritePayload[]` to `Memorai.writeBatch()`. The internal `EvolutionEngine` takes over from there (segment → atomic_action → event).
+8. **Write.** Pass the resulting `WritePayload[]` to `Memorai.writeBatch()`. The internal `EvolutionEngine` takes over from there (segment → atomic_action → episode).
 
 **Extractor implementations** (provided + pluggable):
 
@@ -553,14 +553,14 @@ interface AgentMemoryProfile {
   
   // What this agent stores
   writePolicy: {
-    levels: ('segment' | 'atomic_action' | 'event')[];
+    levels: ('segment' | 'atomic_action' | 'episode')[];
     modalities: ('text' | 'vision' | 'audio' | 'multimodal')[];
     salienceBoost: number;        // Agent-specific salience weight
   };
   
   // What this agent retrieves
   readPolicy: {
-    defaultLevel: 'segment' | 'atomic_action' | 'event';
+    defaultLevel: 'segment' | 'atomic_action' | 'episode';
     defaultTraversal: 'forward' | 'reverse' | 'salience';
     timeHorizonMs: number;        // How far back this agent typically looks
   };
@@ -688,7 +688,7 @@ interface RecallOptions {
   actor?: string;                         // filter to events involving this actor
   target?: string;
   modality?: ("text" | "image" | "audio" | "video")[];
-  level?: "segment" | "atomic_action" | "event";
+  level?: "segment" | "atomic_action" | "episode";
   strategy?: "factual" | "temporal" | "inferential" | "exploratory";
   // Power user: override the underlying RetrievalQuery for full control
   overrideQuery?: Partial<RetrievalQuery>;
@@ -709,7 +709,7 @@ interface RecalledMemory {
   summary: string;                        // canonical textual form
   evidence?: { kind: "image" | "audio" | "video" | "file"; ref: string }[];
   score: number;                          // 0–1 relevance
-  level: "segment" | "atomic_action" | "event";
+  level: "segment" | "atomic_action" | "episode";
 }
 ```
 

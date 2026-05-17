@@ -1,11 +1,16 @@
 import {
   cosineSimilarity,
   generateId,
+  InMemoryEventStore,
   Memorai,
   MemoryAdapter,
   RetrievalEngine,
   SQLiteAdapter,
   type EmbeddingService,
+  type EventIdentifier,
+  type IdentifiedEvent,
+  type IdentifyContext,
+  type MemoryEvent,
   type MemoryNode,
   type SQLiteDatabase,
   type SQLiteStatement,
@@ -308,7 +313,7 @@ describe("Memorai basics", () => {
     expect(result.nodes.length).toBeGreaterThan(0);
   });
 
-  test("evolve aggregates atomic actions into events", async () => {
+  test("evolve aggregates atomic actions into episodes", async () => {
     const mem = new Memorai({
       storage: new MemoryAdapter(),
       embedding: new MockEmbeddingService(),
@@ -316,7 +321,7 @@ describe("Memorai basics", () => {
         semanticMergeThreshold: 0.99,
         temporalGapThresholdMs: 1,
         sceneSimilarityThreshold: 0.5,
-        eventTimeWindowMs: 600000,
+        episodeTimeWindowMs: 600000,
         mode: "manual",
       },
     });
@@ -357,14 +362,14 @@ describe("Memorai basics", () => {
       { skipEmbedding: true },
     );
 
-    let events = await mem.list({ level: "event" });
-    expect(events.length).toBe(0);
+    let episodes = await mem.list({ level: "episode" });
+    expect(episodes.length).toBe(0);
 
     await mem.evolve();
 
-    events = await mem.list({ level: "event" });
-    expect(events.length).toBe(1);
-    expect(events[0].childrenIds!.length).toBe(2);
+    episodes = await mem.list({ level: "episode" });
+    expect(episodes.length).toBe(1);
+    expect(episodes[0].childrenIds!.length).toBe(2);
 
     await mem.close();
   });
@@ -668,6 +673,354 @@ describe("Memorai.reAnnotate", () => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// MemoryEvent layer — store + identifier + recall integration
+// ═══════════════════════════════════════════════════════════
+
+describe("InMemoryEventStore", () => {
+  const makeEvent = (overrides: Partial<MemoryEvent> = {}): MemoryEvent => ({
+    id: overrides.id ?? generateId(),
+    kind: overrides.kind ?? "state",
+    description: overrides.description ?? "Alice likes apples",
+    participants: overrides.participants ?? ["alice"],
+    topics: overrides.topics ?? ["food", "preference"],
+    occurredAt: overrides.occurredAt ?? Date.now(),
+    sourceNodeIds: overrides.sourceNodeIds ?? [generateId()],
+    embedding: overrides.embedding,
+    userId: overrides.userId,
+    confidence: overrides.confidence,
+    invalidatedAt: overrides.invalidatedAt,
+    supersedes: overrides.supersedes,
+    meta: overrides.meta ?? { identifiedAt: Date.now(), accessCount: 0 },
+  });
+
+  test("CRUD round-trip", async () => {
+    const store = new InMemoryEventStore();
+    const ev = makeEvent({ description: "round trip" });
+    await store.putEvent(ev);
+    const fetched = await store.getEvent(ev.id);
+    expect(fetched?.description).toBe("round trip");
+    await store.deleteEvent(ev.id);
+    expect(await store.getEvent(ev.id)).toBeNull();
+  });
+
+  test("queryEventsByParticipant returns scoped matches", async () => {
+    const store = new InMemoryEventStore();
+    await store.putEvent(makeEvent({ participants: ["alice"] }));
+    await store.putEvent(makeEvent({ participants: ["bob"] }));
+    await store.putEvent(makeEvent({ participants: ["alice", "bob"] }));
+
+    const aliceHits = await store.queryEventsByParticipant("alice");
+    expect(aliceHits.length).toBe(2);
+    const bobHits = await store.queryEventsByParticipant("bob");
+    expect(bobHits.length).toBe(2);
+  });
+
+  test("queryEventsByTopic — case-insensitive", async () => {
+    const store = new InMemoryEventStore();
+    await store.putEvent(makeEvent({ topics: ["Food", "Snack"] }));
+    const hits = await store.queryEventsByTopic("food");
+    expect(hits.length).toBe(1);
+  });
+
+  test("validAt + excludeInvalidated filtering", async () => {
+    const store = new InMemoryEventStore();
+    const fresh = makeEvent({ description: "alice likes coffee", occurredAt: 1000 });
+    const stale = makeEvent({
+      description: "alice likes tea",
+      occurredAt: 500,
+      invalidatedAt: 900,
+    });
+    await store.putEvent(fresh);
+    await store.putEvent(stale);
+
+    const allValid = await store.listEvents({ validAt: 950 });
+    expect(allValid.length).toBe(1);
+    expect(allValid[0].description).toBe("alice likes coffee");
+
+    const excluding = await store.listEvents({ excludeInvalidated: true });
+    expect(excluding.length).toBe(1);
+    expect(excluding[0].description).toBe("alice likes coffee");
+
+    const both = await store.listEvents();
+    expect(both.length).toBe(2);
+  });
+
+  test("queryEventsByEmbedding returns cosine-ranked", async () => {
+    const store = new InMemoryEventStore();
+    await store.putEvent(makeEvent({ description: "near", embedding: [1, 0, 0, 0] }));
+    await store.putEvent(makeEvent({ description: "far", embedding: [0, 1, 0, 0] }));
+
+    const hits = await store.queryEventsByEmbedding([1, 0, 0, 0], { topK: 2 });
+    expect(hits[0].description).toBe("near");
+    expect(hits[1].description).toBe("far");
+  });
+
+  test("queryEventsByText surfaces description tokens via BM25", async () => {
+    const store = new InMemoryEventStore();
+    await store.putEvent(makeEvent({ description: "alice prefers tea over coffee" }));
+    await store.putEvent(makeEvent({ description: "bob attended the meeting" }));
+    const hits = await store.queryEventsByText("tea", { topK: 5 });
+    expect(hits.length).toBe(1);
+    expect(hits[0].description).toContain("tea");
+  });
+});
+
+describe("Memorai event identification + recall", () => {
+  /**
+   * A scripted identifier that produces predetermined events per call. Lets
+   * us test the integration without invoking an LLM.
+   */
+  class ScriptedIdentifier implements EventIdentifier {
+    readonly version = "scripted-v1";
+    private call = 0;
+    constructor(private readonly script: ((ctx: IdentifyContext) => IdentifiedEvent[])[]) {}
+    identify(ctx: IdentifyContext): Promise<IdentifiedEvent[]> {
+      const fn = this.script[this.call++] ?? (() => []);
+      return Promise.resolve(fn(ctx));
+    }
+  }
+
+  test("evolve() identifies events from raw segments", async () => {
+    const identifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "Alice prefers tea",
+          participants: ["alice"],
+          topics: ["preference", "drink"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: ctx.nodes.map((n) => n.id),
+        },
+      ],
+    ]);
+
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "alice ordered tea" },
+        text: "alice ordered tea",
+      },
+      annotations: {
+        summary: "alice ordered tea",
+        tags: [],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+
+    await memory.evolve();
+    const events = await memory.listEvents();
+    expect(events.length).toBe(1);
+    expect(events[0].kind).toBe("state");
+    expect(events[0].description).toBe("Alice prefers tea");
+    expect(events[0].identifierVersion).toBe("scripted-v1");
+  });
+
+  test("evolve() is idempotent — already-identified nodes are skipped", async () => {
+    let callCount = 0;
+    const identifier: EventIdentifier = {
+      version: "count-v1",
+      identify: async (ctx) => {
+        callCount += 1;
+        return [
+          {
+            kind: "happening",
+            description: `call ${callCount}`,
+            participants: [],
+            topics: [],
+            occurredAt: ctx.nodes[0].timestamp,
+            sourceNodeIds: [ctx.nodes[0].id],
+          },
+        ];
+      },
+    };
+
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      raw: { content: { kind: "observation", text: "first" }, text: "first" },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+
+    await memory.evolve();
+    await memory.evolve();
+    await memory.evolve();
+
+    expect(callCount).toBe(1);
+    const events = await memory.listEvents();
+    expect(events.length).toBe(1);
+  });
+
+  test("state supersede sets invalidatedAt on the old event", async () => {
+    // Phase 1: identify "Alice is vegetarian"
+    // Phase 2: identify "Alice now eats fish" superseding phase 1
+    const identifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "Alice is vegetarian",
+          participants: ["alice"],
+          topics: ["diet"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: ctx.nodes.map((n) => n.id),
+        },
+      ],
+      (ctx) => {
+        const existing = ctx.relatedEvents.find((e) => e.description === "Alice is vegetarian");
+        return [
+          {
+            kind: "state",
+            description: "Alice now eats fish",
+            participants: ["alice"],
+            topics: ["diet"],
+            occurredAt: ctx.nodes[0].timestamp,
+            sourceNodeIds: ctx.nodes.map((n) => n.id),
+            supersedes: existing ? [existing.id] : undefined,
+          },
+        ];
+      },
+    ]);
+
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "alice ate veggies" },
+        text: "alice ate veggies",
+      },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+    await memory.evolve();
+
+    await new Promise((r) => setTimeout(r, 5));
+
+    await memory.write({
+      raw: { content: { kind: "observation", text: "alice ate salmon" }, text: "alice ate salmon" },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+    await memory.evolve();
+
+    const all = await memory.listEvents();
+    expect(all.length).toBe(2);
+
+    const oldEvent = all.find((e) => e.description === "Alice is vegetarian");
+    const newEvent = all.find((e) => e.description === "Alice now eats fish");
+    expect(oldEvent?.invalidatedAt).toBeGreaterThan(0);
+    expect(newEvent?.supersedes).toContain(oldEvent?.id);
+
+    // Default recall should not surface invalidated state.
+    const validOnly = await memory.listEvents({ excludeInvalidated: true });
+    expect(validOnly.length).toBe(1);
+    expect(validOnly[0].description).toBe("Alice now eats fish");
+  });
+
+  test("recall surfaces MemoryEvents alongside raw nodes", async () => {
+    const identifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "Alice loves apples",
+          participants: ["alice"],
+          topics: ["food"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: ctx.nodes.map((n) => n.id),
+        },
+      ],
+    ]);
+
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "alice loves apples" },
+        text: "alice loves apples",
+      },
+      annotations: {
+        summary: "alice loves apples",
+        tags: ["food"],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+    await memory.evolve();
+
+    const result = await memory.recall("what does alice love?", { topK: 5 });
+    expect(result.memories.length).toBeGreaterThan(0);
+
+    const hasEventPathway = result.memories.some((m) =>
+      m.provenance?.pathways.some((p) => p.startsWith("event:")),
+    );
+    expect(hasEventPathway).toBe(true);
+  });
+
+  test("opts.includeEvents=false disables event-level recall", async () => {
+    const identifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "Alice loves apples",
+          participants: ["alice"],
+          topics: ["food"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: ctx.nodes.map((n) => n.id),
+        },
+      ],
+    ]);
+
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      raw: {
+        content: { kind: "observation", text: "alice loves apples" },
+        text: "alice loves apples",
+      },
+      annotations: {
+        summary: "alice loves apples",
+        tags: ["food"],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+    await memory.evolve();
+
+    const result = await memory.recall("what does alice love?", {
+      topK: 5,
+      includeEvents: false,
+    });
+    const eventPathway = result.memories.some((m) =>
+      m.provenance?.pathways.some((p) => p.startsWith("event:")),
+    );
+    expect(eventPathway).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
 // Phase 3: Advanced Retrieval Tests
 // ═══════════════════════════════════════════════════════════
 
@@ -731,10 +1084,10 @@ describe("RetrievalEngine — Phase 3", () => {
           modality: ["text"],
         },
       }),
-      // Event: coding project
+      // Episode: coding project
       makeNode("coding project overview", [1, 0, 0, 0], {
         timestamp: now - 1800000,
-        level: "event",
+        level: "episode",
         childrenIds: ["child1", "child2"],
         annotations: {
           ...makeNode("", [1, 0, 0, 0]).annotations,
@@ -775,7 +1128,7 @@ describe("RetrievalEngine — Phase 3", () => {
     expect(summaries.some((s) => s.includes("gym"))).toBe(true);
   });
 
-  test("inferential strategy boosts events with children", async () => {
+  test("inferential strategy boosts episodes with children", async () => {
     await seedNodes();
     const result = await engine.retrieve({
       strategy: "inferential",
@@ -783,9 +1136,9 @@ describe("RetrievalEngine — Phase 3", () => {
       topK: 3,
     });
 
-    // Event node should be boosted
-    const eventNodes = result.nodes.filter((n) => n.level === "event");
-    expect(eventNodes.length).toBeGreaterThanOrEqual(1);
+    // Episode node should be boosted
+    const episodeNodes = result.nodes.filter((n) => n.level === "episode");
+    expect(episodeNodes.length).toBeGreaterThanOrEqual(1);
   });
 
   test("exploratory strategy is broader", async () => {

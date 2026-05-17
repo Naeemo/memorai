@@ -37,7 +37,7 @@ These tests exercise Memorai's distinctive design points — hierarchical evolut
 |-----------|---------------|
 | Needle-in-a-Haystack | Single critical fact retrieval across corpus sizes 10, 50, 100, 250 |
 | Multi-Needle Retrieval | Recall when 1, 3, or 5 distinct needles share a 100-item corpus |
-| Hierarchical Evolution Preservation | Segment → atomic_action → event aggregation retains the original facts |
+| Hierarchical Evolution Preservation | Segment → atomic_action → episode aggregation retains the original facts |
 | Temporal Retrieval | Time-range queries return only in-window memories |
 | Scalability | Write throughput + retrieval latency at sizes 50, 100, 250, 500, 1,000 |
 | Cross-Agent Isolation | Per-agent `agentProfile` keeps three agents' memories disjoint |
@@ -269,7 +269,7 @@ To fetch LongMemEval behind a regional network restriction, set `HF_ENDPOINT=htt
 ## What these results say about Memorai
 
 ✅ **Confirmed** (custom + canonical wrap run):
-- Hierarchical evolution preserves facts across segment → atomic_action → event aggregation
+- Hierarchical evolution preserves facts across segment → atomic_action → episode aggregation
 - Multi-strategy retrieval routes correctly (factual vs temporal vs inferential)
 - Cross-agent isolation is exact at the storage + retrieval boundary
 - Multimodal payloads (image / audio / video / file refs) survive ingest and recall end-to-end

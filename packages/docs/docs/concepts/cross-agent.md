@@ -11,14 +11,14 @@ interface AgentMemoryProfile {
 
   // What this agent stores
   writePolicy: {
-    levels: ('segment' | 'atomic_action' | 'event')[];
+    levels: ('segment' | 'atomic_action' | 'episode')[];
     modalities: ('text' | 'vision' | 'audio' | 'multimodal')[];
     salienceBoost: number;          // Agent-specific salience weight
   };
 
   // What this agent retrieves
   readPolicy: {
-    defaultLevel: 'segment' | 'atomic_action' | 'event';
+    defaultLevel: 'segment' | 'atomic_action' | 'episode';
     defaultTraversal: 'forward' | 'reverse' | 'salience';
     timeHorizonMs: number;          // How far back this agent typically looks
   };
@@ -40,7 +40,7 @@ const memory = new Memorai({
       salienceBoost: 1.0,
     },
     readPolicy: {
-      defaultLevel: 'event',
+      defaultLevel: 'episode',
       defaultTraversal: 'reverse',
       timeHorizonMs: 86_400_000,    // 24 hours
     },
@@ -52,11 +52,11 @@ const memory = new Memorai({
 
 | Agent role | Write focus | Read focus |
 |---|---|---|
-| **Reasoning** | Global semantic evolution, cross-temporal events | Events + atomic actions, forward traversal |
+| **Reasoning** | Global semantic evolution, cross-temporal episodes | Episodes + atomic actions, forward traversal |
 | **Proactive** | Key action triggers, state changes | Recent segments, reverse traversal, high salience |
 | **Custom** | User-defined | User-defined |
 
-Reasoning agents write up high (events live longer); proactive agents stay near the present (segments expire fast).
+Reasoning agents write up high (episodes live longer); proactive agents stay near the present (segments expire fast).
 
 ## Sharing storage across agents
 
@@ -74,8 +74,8 @@ const reasoning = new Memorai({
   agentProfile: {
     agentId: 'reasoning-1',
     role: 'reasoning',
-    writePolicy: { levels: ['segment', 'atomic_action', 'event'], modalities: ['text', 'vision'], salienceBoost: 1 },
-    readPolicy: { defaultLevel: 'event', defaultTraversal: 'forward', timeHorizonMs: 86_400_000 },
+    writePolicy: { levels: ['segment', 'atomic_action', 'episode'], modalities: ['text', 'vision'], salienceBoost: 1 },
+    readPolicy: { defaultLevel: 'episode', defaultTraversal: 'forward', timeHorizonMs: 86_400_000 },
   },
 });
 
@@ -95,4 +95,4 @@ Now both agents read from the same memory, but each scopes its queries by defaul
 
 ## Why per-agent policies, not per-call defaults?
 
-Per-call defaults are tedious and easy to get wrong. A reasoning agent that occasionally forgets to filter by `level: 'event'` ends up flooded with raw segments. By encoding the policy in the profile, the default behaviour matches the agent's role, and explicit overrides become rare exceptions rather than constant boilerplate.
+Per-call defaults are tedious and easy to get wrong. A reasoning agent that occasionally forgets to filter by `level: 'episode'` ends up flooded with raw segments. By encoding the policy in the profile, the default behaviour matches the agent's role, and explicit overrides become rare exceptions rather than constant boilerplate.

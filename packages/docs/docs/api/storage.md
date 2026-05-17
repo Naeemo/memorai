@@ -34,7 +34,7 @@ interface QueryOpts {
   offset?: number;
   orderBy?: 'timestamp' | 'salience' | 'lastAccessed';
   order?: 'asc' | 'desc';
-  level?: 'segment' | 'atomic_action' | 'event';
+  level?: 'segment' | 'atomic_action' | 'episode';
 }
 ```
 

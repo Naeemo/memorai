@@ -22,12 +22,12 @@ const memory = new Memorai({
     agentId: "browser-assistant",
     role: "reasoning",
     writePolicy: {
-      levels: ["segment", "atomic_action", "event"],
+      levels: ["segment", "atomic_action", "episode"],
       modalities: ["text", "vision"],
       salienceBoost: 1,
     },
     readPolicy: {
-      defaultLevel: "event",
+      defaultLevel: "episode",
       defaultTraversal: "reverse",
       timeHorizonMs: 7 * 24 * 60 * 60 * 1000, // 1 week
     },

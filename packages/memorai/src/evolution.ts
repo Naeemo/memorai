@@ -12,7 +12,7 @@ const DEFAULT_CONFIG: EvolutionConfig = {
   semanticMergeThreshold: 0.85,
   temporalGapThresholdMs: 30000,
   sceneSimilarityThreshold: 0.8,
-  eventTimeWindowMs: 300000,
+  episodeTimeWindowMs: 300000,
   stmMaxSize: 1000,
   mode: "auto",
   autoTriggers: {
@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: EvolutionConfig = {
 /**
  * Hierarchical Memory Evolution (HME) Engine.
  *
- * Two-level evolution (Segment → Atomic Action → Event). Operates on the
+ * Two-level evolution (Segment → Atomic Action → Episode). Operates on the
  * three-tier MemoryNode shape:
  *   - Tier 1 `raw` is merged conservatively: parent.raw.text = joined child
  *     texts, parent.raw.media = union, parent.raw.content stays as the first
@@ -34,8 +34,13 @@ const DEFAULT_CONFIG: EvolutionConfig = {
  *   - Tier 2 `annotations` is merged across children: summary / facts / tags
  *     concatenated and deduped, salience = max, embedding = weighted average.
  *
+ * Episodes are *temporal clusters* of atomic_actions — they group what
+ * happened nearby in time and topic. They are NOT MemoryEvents (the semantic
+ * units identified by the EventIdentifier); MemoryEvents live alongside
+ * MemoryNodes in their own storage surface.
+ *
  * userId boundaries are strictly respected at both levels — a Bob node will
- * never be folded into an Alice atomic_action / event.
+ * never be folded into an Alice atomic_action / episode.
  */
 export class EvolutionEngine {
   private readonly config: EvolutionConfig;
@@ -65,23 +70,24 @@ export class EvolutionEngine {
   }
 
   /**
-   * Level 2 — aggregate atomic actions into events. Scans recent atomic
-   * actions and groups scene-similar, temporally-contiguous ones into events.
+   * Level 2 — aggregate atomic actions into episodes. Scans recent atomic
+   * actions and groups scene-similar, temporally-contiguous ones into
+   * episodes.
    */
   async evolve(): Promise<void> {
     const all = await this.storage.listAll({ level: "atomic_action" });
 
     const withParent = all.filter((aa) => aa.parentId);
     for (const aa of withParent) {
-      const event = await this.storage.get(aa.parentId!);
-      if (!event) continue;
-      if (!sameUser(event, aa)) continue;
-      await this.updateEventWithChild(event, aa);
+      const episode = await this.storage.get(aa.parentId!);
+      if (!episode) continue;
+      if (!sameUser(episode, aa)) continue;
+      await this.updateEpisodeWithChild(episode, aa);
     }
 
     const orphaned = all.filter((aa) => !aa.parentId);
     for (const aa of orphaned) {
-      await this.tryAggregateToEvent(aa);
+      await this.tryAggregateToEpisode(aa);
     }
   }
 
@@ -169,11 +175,11 @@ export class EvolutionEngine {
 
   // ─── Level 2 internals ───
 
-  private async tryAggregateToEvent(atomicAction: MemoryNode): Promise<void> {
+  private async tryAggregateToEpisode(atomicAction: MemoryNode): Promise<void> {
     const candidates = await this.storage.queryByTimeRange(
-      atomicAction.timestamp - this.config.eventTimeWindowMs,
+      atomicAction.timestamp - this.config.episodeTimeWindowMs,
       atomicAction.timestamp,
-      { level: "event", orderBy: "timestamp", order: "desc" },
+      { level: "episode", orderBy: "timestamp", order: "desc" },
     );
 
     let bestMatch: MemoryNode | null = null;
@@ -195,42 +201,42 @@ export class EvolutionEngine {
     }
 
     if (bestMatch && bestScore >= this.config.sceneSimilarityThreshold) {
-      await this.mergeAtomicActionIntoEvent(bestMatch, atomicAction);
+      await this.mergeAtomicActionIntoEpisode(bestMatch, atomicAction);
     } else {
-      await this.createEvent(atomicAction);
+      await this.createEpisode(atomicAction);
     }
   }
 
-  private async mergeAtomicActionIntoEvent(
-    event: MemoryNode,
+  private async mergeAtomicActionIntoEpisode(
+    episode: MemoryNode,
     atomicAction: MemoryNode,
   ): Promise<void> {
-    event.raw = mergeRaw(event.raw, atomicAction.raw);
-    event.annotations = mergeAnnotations(
-      event.annotations,
+    episode.raw = mergeRaw(episode.raw, atomicAction.raw);
+    episode.annotations = mergeAnnotations(
+      episode.annotations,
       atomicAction.annotations,
-      event.duration,
+      episode.duration,
       atomicAction.duration,
     );
 
-    const children = event.childrenIds ?? [];
-    event.childrenIds = [...children, atomicAction.id];
-    event.duration = (event.duration || 0) + (atomicAction.duration || 0);
-    event.timestamp = Math.max(event.timestamp, atomicAction.timestamp);
+    const children = episode.childrenIds ?? [];
+    episode.childrenIds = [...children, atomicAction.id];
+    episode.duration = (episode.duration || 0) + (atomicAction.duration || 0);
+    episode.timestamp = Math.max(episode.timestamp, atomicAction.timestamp);
 
-    if (!event.actor && atomicAction.actor) event.actor = atomicAction.actor;
-    if (!event.target && atomicAction.target) event.target = atomicAction.target;
+    if (!episode.actor && atomicAction.actor) episode.actor = atomicAction.actor;
+    if (!episode.target && atomicAction.target) episode.target = atomicAction.target;
 
-    atomicAction.parentId = event.id;
-    await this.storage.batchPut([event, atomicAction]);
+    atomicAction.parentId = episode.id;
+    await this.storage.batchPut([episode, atomicAction]);
   }
 
-  private async createEvent(atomicAction: MemoryNode): Promise<void> {
-    const event: MemoryNode = {
+  private async createEpisode(atomicAction: MemoryNode): Promise<void> {
+    const episode: MemoryNode = {
       id: generateId(),
       timestamp: atomicAction.timestamp,
       duration: atomicAction.duration,
-      level: "event",
+      level: "episode",
       childrenIds: [atomicAction.id],
       userId: atomicAction.userId,
       actor: atomicAction.actor,
@@ -242,28 +248,31 @@ export class EvolutionEngine {
       meta: { ...atomicAction.meta, lastAccessed: Date.now() },
     };
 
-    atomicAction.parentId = event.id;
-    await this.storage.batchPut([event, atomicAction]);
+    atomicAction.parentId = episode.id;
+    await this.storage.batchPut([episode, atomicAction]);
   }
 
-  private async updateEventWithChild(event: MemoryNode, atomicAction: MemoryNode): Promise<void> {
-    const children = event.childrenIds ?? [];
+  private async updateEpisodeWithChild(
+    episode: MemoryNode,
+    atomicAction: MemoryNode,
+  ): Promise<void> {
+    const children = episode.childrenIds ?? [];
     if (children.includes(atomicAction.id)) return;
 
-    event.childrenIds = [...children, atomicAction.id];
-    event.timestamp = Math.max(event.timestamp, atomicAction.timestamp);
-    const oldDuration = event.duration || 0;
-    event.duration = oldDuration + (atomicAction.duration || 0);
+    episode.childrenIds = [...children, atomicAction.id];
+    episode.timestamp = Math.max(episode.timestamp, atomicAction.timestamp);
+    const oldDuration = episode.duration || 0;
+    episode.duration = oldDuration + (atomicAction.duration || 0);
 
-    event.raw = mergeRaw(event.raw, atomicAction.raw);
-    event.annotations = mergeAnnotations(
-      event.annotations,
+    episode.raw = mergeRaw(episode.raw, atomicAction.raw);
+    episode.annotations = mergeAnnotations(
+      episode.annotations,
       atomicAction.annotations,
       oldDuration,
       atomicAction.duration,
     );
 
-    await this.storage.put(event);
+    await this.storage.put(episode);
   }
 }
 
