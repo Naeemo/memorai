@@ -1,6 +1,6 @@
 {
   "name": "memorai",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Runtime-agnostic multimodal streaming memory for AI agents — Browser, Node.js, Bun, Deno",
   "homepage": "https://github.com/Naeemo/memorai#readme",
   "bugs": {

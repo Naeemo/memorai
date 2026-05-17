@@ -113,7 +113,52 @@ pnpm --filter @memorai/benchmarks bench:locomo --limit 1 --limit-qas 30 --provid
 
 The runner writes `results/<suite>-<provider>-<timestamp>.{json,md}` after each run. Copy chosen runs into `results/published/<name>.md` to commit them.
 
-## Canonical results (2026-05-16, Memorai 0.1.0)
+## Canonical results
+
+### 2026-05-17 — Memorai 0.2.0 (multi-pathway retrieval)
+
+0.2.0 added a multi-pathway retrieval layer: every recall now fans out to semantic + BM25 + tag + temporal + identity routes in parallel, fuses them via [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf), and tags every returned memory with its `provenance.pathways`. Optional LLM-driven precision layers (`--reranker llm`, `--query-expansion N`, `--hyde`) sit on top of the fusion.
+
+#### Custom suite — `published/custom-2026-05-17.md`
+
+Aggregate **97.5%** (up from 92.9% in 0.1.0).
+
+| Benchmark | 0.1.0 | 0.2.0 | Δ |
+|-----------|------|------|---|
+| Needle-in-a-Haystack | 94.3% | **100%** | +5.7 |
+| Multi-Needle Retrieval | 68.9% | **100%** | +31.1 |
+| Hierarchical Evolution Preservation | 100% | 100% | — |
+| Temporal Retrieval | 100% | 100% | — |
+| Scalability | 100% | 100% | — |
+| Cross-Agent Isolation | 100% | 100% | — |
+| Multimodal Recall | 80% | 80% | — |
+| Time-Window Recall | 100% | 100% | — |
+
+Multi-Needle's 31-point jump and Needle-Haystack's 5.7-point jump confirm that BM25 was missing real recall before — the multi-pathway fusion picks up exact-token hits that pure cosine similarity was scoring below threshold.
+
+#### LoCoMo — wrap mode, conv-26, 30 QAs
+
+| Configuration | Accuracy | Notes |
+|---------------|---------|-------|
+| 0.1.0 (cosine only) | 3.33% (1/30) | 29/30 "I don't know" — retrieval bottleneck |
+| 0.2.0 (RRF + BM25) | **13.33% (4/30)** | **4× lift, no extra LLM cost at recall time** |
+| 0.2.0 + `--reranker llm` | 13.33% (4/30) | multi_hop 0%→25%, temporal 12.5%→6.3% — rerank shifts the categorical distribution but the total didn't move at N=30 |
+| 0.2.0 + reranker + expansion + HyDE | 13.33% (4/30) | full LLM precision stack doesn't beat rerank-only at N=30; roughly 2× wall-clock |
+
+F1 also improved: 0.000–0.286 (0.1.0) → 0.029–0.206 (0.2.0 baseline) → 0.031–0.240 (with reranker). Token-level proximity to the gold answers is up across the board even where the binary accuracy didn't move.
+
+The headline number: **RRF + BM25 alone is responsible for the 4× improvement.** The LLM-driven precision layers (reranker, expansion, HyDE) at N=30 are mostly trading categories rather than improving the total. They're still useful escape hatches for harder workloads.
+
+#### LongMemEval oracle — 20 questions
+
+| Configuration | Accuracy | Latency |
+|---------------|---------|---------|
+| 0.1.0 | 55% (11/20) | 140s |
+| 0.2.0 | **60% (12/20)** | **77s** (faster — RRF dedup is more efficient than the old naive merge) |
+
+The oracle split feeds pre-filtered context to the answerer; this number measures the downstream pipeline (Event ingest → recall → answerer → judge), not retrieval quality. Still a useful sanity check that the multi-pathway changes didn't regress anything on the answer-generation side.
+
+### 2026-05-16 — Memorai 0.1.0 (Event API baseline)
 
 ### Custom suite — `published/custom-2026-05-16.md`
 
