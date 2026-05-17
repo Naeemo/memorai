@@ -69,8 +69,32 @@ export class LLMEventIdentifier implements EventIdentifier {
       temperature?: number;
       /** Max characters of raw text to send per call. Default 16000. */
       maxInputChars?: number;
+      /**
+       * Called when the LLM call or JSON parsing fails. Receives a short
+       * `stage` label and the raw error. Defaults to `console.error`. Pass
+       * a no-op to suppress.
+       */
+      onError?: (
+        stage: string,
+        err: unknown,
+        ctx: { batchSize: number; rawSample?: string },
+      ) => void;
     } = {},
   ) {}
+
+  private reportError(stage: string, err: unknown, batchSize: number, rawSample?: string): void {
+    if (this.opts.onError) {
+      try {
+        this.opts.onError(stage, err, { batchSize, rawSample });
+      } catch {
+        // swallow — error reporter itself should never break identification
+      }
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    const tail = rawSample ? ` raw=${JSON.stringify(rawSample)}` : "";
+    console.error(`[LLMEventIdentifier] ${stage} (batchSize=${batchSize}): ${msg}${tail}`);
+  }
 
   async identify(ctx: IdentifyContext): Promise<IdentifiedEvent[]> {
     const llm = this.opts.llm ?? ctx.llm;
@@ -93,14 +117,16 @@ export class LLMEventIdentifier implements EventIdentifier {
         responseFormat: "json",
         signal: ctx.signal,
       });
-    } catch {
+    } catch (err) {
+      this.reportError("llm.complete failed", err, ctx.nodes.length);
       return [];
     }
 
     let parsed: RawIdentifiedEventJson[];
     try {
       parsed = parseJsonArray(raw);
-    } catch {
+    } catch (err) {
+      this.reportError("JSON parse failed", err, ctx.nodes.length, raw.slice(0, 200));
       return [];
     }
 

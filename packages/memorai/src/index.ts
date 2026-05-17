@@ -305,7 +305,18 @@ export class Memorai {
       fused.set(event.id, entry);
     }
 
-    const sorted = [...fused.values()].sort((a, b) => b.score - a.score).slice(0, topK);
+    // Honor opts.timeRange.start as well — semantic / BM25 queries returned
+    // candidates filtered only by validAt (which is timeRange.end). Drop
+    // events whose occurredAt falls outside the requested window.
+    let candidates = [...fused.values()];
+    if (opts.timeRange) {
+      const { start, end } = opts.timeRange;
+      candidates = candidates.filter(
+        (c) => c.event.occurredAt >= start && c.event.occurredAt <= end,
+      );
+    }
+
+    const sorted = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
 
     // Touch lastAccessed for surfaced events. Fire-and-forget; failures
     // here should not block recall.
@@ -327,7 +338,12 @@ export class Memorai {
       tags: event.topics,
       salienceScore: event.confidence ?? 0.5,
       score,
-      level: "episode" as MemoryLevel,
+      // Event-derived hits don't sit on the HME level axis; pick the
+      // source-segment level as a honest provenance signal and rely on
+      // `eventKind` to mark the layer.
+      level: "segment" as MemoryLevel,
+      eventKind: event.kind,
+      sourceNodeIds: event.sourceNodeIds,
       provenance: {
         pathways: [...pathways],
         fusedScore: score,
@@ -339,9 +355,12 @@ export class Memorai {
   /**
    * Outer RRF fusion between node-level recall and event-level recall. Each
    * source ranks its hits; we fuse by id (so the same memory surfaced from
-   * both routes gets credit). Event memories typically carry richer
-   * descriptions and live at `level: "episode"` in the merged stream so
-   * the answerer can prefer them.
+   * both routes gets credit).
+   *
+   * Event memories typically carry richer canonical descriptions than the
+   * raw nodes that backed them, so we dedupe: when an event surfaces with
+   * `sourceNodeIds = [A, B]`, any raw-node hit with id A or B is dropped
+   * to free its topK slot for distinct information.
    */
   private mergeNodeAndEventResults(
     nodeResult: RecallResult,
@@ -356,6 +375,13 @@ export class Memorai {
       };
     }
 
+    // Collect raw-node IDs covered by surfaced events. Those node hits are
+    // redundant — the event description is the canonical version.
+    const coveredByEvent = new Set<string>();
+    for (const m of eventMemories) {
+      for (const sid of m.sourceNodeIds ?? []) coveredByEvent.add(sid);
+    }
+
     const RRF_K = 60;
     const merged = new Map<
       string,
@@ -367,14 +393,17 @@ export class Memorai {
       }
     >();
 
-    for (const [rank, m] of nodeResult.memories.entries()) {
-      const inc = 1 / (RRF_K + rank);
+    let nodeRank = 0;
+    for (const m of nodeResult.memories) {
+      if (coveredByEvent.has(m.id)) continue; // dedupe vs surfaced events
+      const inc = 1 / (RRF_K + nodeRank);
       merged.set(m.id, {
         memory: m,
         score: inc,
         pathways: new Set(m.provenance?.pathways ?? []),
         pathwayScores: { ...(m.provenance?.pathwayScores ?? {}) },
       });
+      nodeRank += 1;
     }
 
     for (const [rank, m] of eventMemories.entries()) {
@@ -745,39 +774,92 @@ export class Memorai {
   private async identifyBatch(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
     if (!this.identifier) return [];
 
-    // Pull recent events as context. Cheap heuristic for now; a smarter
-    // implementation would filter by overlapping participants / topics.
-    const relatedEvents = await this.eventStore.listEvents({
-      orderBy: "occurredAt",
-      order: "desc",
-      limit: 50,
-      excludeInvalidated: true,
-    });
+    const relatedEvents = await this.fetchRelatedEvents(nodes);
 
-    const identified = await this.identifier.identify({
-      nodes,
-      relatedEvents,
-      embedding: this.config.embedding,
-      llm: this.config.llm,
-      now: () => Date.now(),
-    });
-
-    const produced: MemoryEvent[] = [];
-    for (const ident of identified) {
-      const event = await this.persistIdentifiedEvent(ident, nodes);
-      if (event) produced.push(event);
+    let identified: IdentifiedEvent[] = [];
+    try {
+      identified = await this.identifier.identify({
+        nodes,
+        relatedEvents,
+        embedding: this.config.embedding,
+        llm: this.config.llm,
+        now: () => Date.now(),
+      });
+    } catch (err) {
+      console.error("[Memorai] identifier.identify failed:", err);
     }
 
-    // Mark batch nodes as identified — regardless of whether they produced
-    // events. Skipping a node is a valid identifier output; we don't want to
-    // re-ask on every evolve().
-    const stamp = Date.now();
-    for (const node of nodes) {
-      node.meta.identifiedAt = stamp;
-      await this.config.storage.put(node);
+    const produced: MemoryEvent[] = [];
+    try {
+      // Per-event try/catch so one bad persist doesn't take down the batch.
+      for (const ident of identified) {
+        try {
+          const event = await this.persistIdentifiedEvent(ident, nodes);
+          if (event) produced.push(event);
+        } catch (err) {
+          console.error("[Memorai] persistIdentifiedEvent failed:", err);
+        }
+      }
+    } finally {
+      // Always mark batch nodes as identified — re-running the same batch
+      // would otherwise produce duplicate events for the ones that succeeded.
+      const stamp = Date.now();
+      for (const node of nodes) {
+        node.meta.identifiedAt = stamp;
+        try {
+          await this.config.storage.put(node);
+        } catch (err) {
+          console.error("[Memorai] mark identifiedAt failed:", err);
+        }
+      }
     }
 
     return produced;
+  }
+
+  /**
+   * Pull events relevant to the batch for supersede context. Prefers
+   * participant overlap (gathered from existing annotation tags + actor
+   * names) over "most recent N". Falls back to the recent-N heuristic when
+   * the batch has no usable participant signal.
+   */
+  private async fetchRelatedEvents(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
+    const userIds = new Set<string | undefined>(nodes.map((n) => n.userId));
+    const participants = new Set<string>();
+    for (const n of nodes) {
+      if (n.actor) participants.add(n.actor.toLowerCase());
+      for (const t of n.annotations.tags) participants.add(t.toLowerCase());
+    }
+
+    const seen = new Map<string, MemoryEvent>();
+    const PER_PARTICIPANT_LIMIT = 10;
+
+    for (const userId of userIds) {
+      if (participants.size === 0) {
+        // No participant signal — fall back to most recent for this user.
+        const recent = await this.eventStore.listEvents({
+          userId,
+          orderBy: "occurredAt",
+          order: "desc",
+          limit: 50,
+          excludeInvalidated: true,
+        });
+        for (const ev of recent) seen.set(ev.id, ev);
+        continue;
+      }
+      for (const p of participants) {
+        const hits = await this.eventStore.queryEventsByParticipant(p, {
+          userId,
+          orderBy: "occurredAt",
+          order: "desc",
+          limit: PER_PARTICIPANT_LIMIT,
+          excludeInvalidated: true,
+        });
+        for (const ev of hits) seen.set(ev.id, ev);
+      }
+    }
+
+    return [...seen.values()];
   }
 
   private async persistIdentifiedEvent(

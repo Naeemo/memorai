@@ -619,6 +619,20 @@ export interface RecalledMemory {
   evidence?: MediaPayload;
   score: number;
   level: MemoryLevel;
+  /**
+   * Set when this hit was derived from the MemoryEvent layer (Tier 2.5)
+   * rather than from a raw MemoryNode. The semantic-event surface returns
+   * canonical state assertions / transitions / happenings whose schema is
+   * different from raw nodes; callers can branch on `eventKind` to render
+   * differently or filter event-derived hits in or out.
+   */
+  eventKind?: MemoryEventKind;
+  /**
+   * For event-derived hits, the raw MemoryNode IDs the event was
+   * identified from. Used by recall fusion to dedupe redundant node-level
+   * hits whose content already informed a surfaced event.
+   */
+  sourceNodeIds?: readonly string[];
   /** Multi-pathway retrieval evidence — which routes found this memory. */
   provenance?: RecalledMemoryProvenance;
 }
