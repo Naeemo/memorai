@@ -17,6 +17,8 @@ interface CliOptions {
   extractorModel?: string;
   reranker: "llm" | "none";
   rerankerModel?: string;
+  identifier: "llm" | "none";
+  identifierModel?: string;
   queryExpansion?: number;
   hyde: boolean;
   embedder: "ollama" | "openai";
@@ -53,6 +55,7 @@ function parseArgs(argv: string[]): CliOptions {
     ingestMode: "wrap",
     extractor: "wrap",
     reranker: "none",
+    identifier: "none",
     hyde: false,
     embedder: "ollama",
     topK: 30,
@@ -89,6 +92,12 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--reranker-model":
         opts.rerankerModel = next();
+        break;
+      case "--identifier":
+        opts.identifier = next() as CliOptions["identifier"];
+        break;
+      case "--identifier-model":
+        opts.identifierModel = next();
         break;
       case "--query-expansion":
         opts.queryExpansion = Number.parseInt(next(), 10);
@@ -158,6 +167,8 @@ options:
   --extractor-model <id>                 (default: gemma4:e2b — small local model for fast extraction)
   --reranker llm|none                    (default: none; llm runs LLMReranker over the fused top-N)
   --reranker-model <id>                  (default: answerer model)
+  --identifier llm|none                  (default: none; llm runs LLMEventIdentifier during evolve to populate the MemoryEvent layer)
+  --identifier-model <id>                (default: extractor / answerer model)
   --query-expansion <n>                  (default: off; generate N paraphrases and outer-fuse)
   --hyde                                 (default: off; generate hypothetical answer and use its embedding)
   --ingest-mode wrap|extract|paired      (legacy; superseded by --extractor)
@@ -188,6 +199,8 @@ function makeProvider(opts: CliOptions): MemoryProvider {
     answererModel: opts.answererModel,
     reranker: opts.reranker,
     rerankerModel: opts.rerankerModel,
+    identifier: opts.identifier,
+    identifierModel: opts.identifierModel,
     queryExpansion: opts.queryExpansion,
     hyde: opts.hyde,
   });
