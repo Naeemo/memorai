@@ -819,46 +819,62 @@ export class Memorai {
 
   /**
    * Pull events relevant to the batch for supersede context. Prefers
-   * participant overlap (gathered from existing annotation tags + actor
-   * names) over "most recent N". Falls back to the recent-N heuristic when
-   * the batch has no usable participant signal.
+   * participant overlap (gathered from actor / target / meta.participants —
+   * the actual entity fields, NOT general tags) over "most recent N". Falls
+   * back to the recent-N heuristic when the batch has no usable participant
+   * signal.
+   *
+   * Queries are issued in parallel per (userId, participant) pair and merged
+   * by id.
    */
   private async fetchRelatedEvents(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
     const userIds = new Set<string | undefined>(nodes.map((n) => n.userId));
     const participants = new Set<string>();
     for (const n of nodes) {
       if (n.actor) participants.add(n.actor.toLowerCase());
-      for (const t of n.annotations.tags) participants.add(t.toLowerCase());
+      if (n.target) participants.add(n.target.toLowerCase());
+      if (n.meta.participants) {
+        for (const p of n.meta.participants) {
+          if (p) participants.add(p.toLowerCase());
+        }
+      }
     }
 
-    const seen = new Map<string, MemoryEvent>();
     const PER_PARTICIPANT_LIMIT = 10;
 
+    const tasks: Promise<MemoryEvent[]>[] = [];
     for (const userId of userIds) {
       if (participants.size === 0) {
         // No participant signal — fall back to most recent for this user.
-        const recent = await this.eventStore.listEvents({
-          userId,
-          orderBy: "occurredAt",
-          order: "desc",
-          limit: 50,
-          excludeInvalidated: true,
-        });
-        for (const ev of recent) seen.set(ev.id, ev);
+        tasks.push(
+          this.eventStore.listEvents({
+            userId,
+            orderBy: "occurredAt",
+            order: "desc",
+            limit: 50,
+            excludeInvalidated: true,
+          }),
+        );
         continue;
       }
       for (const p of participants) {
-        const hits = await this.eventStore.queryEventsByParticipant(p, {
-          userId,
-          orderBy: "occurredAt",
-          order: "desc",
-          limit: PER_PARTICIPANT_LIMIT,
-          excludeInvalidated: true,
-        });
-        for (const ev of hits) seen.set(ev.id, ev);
+        tasks.push(
+          this.eventStore.queryEventsByParticipant(p, {
+            userId,
+            orderBy: "occurredAt",
+            order: "desc",
+            limit: PER_PARTICIPANT_LIMIT,
+            excludeInvalidated: true,
+          }),
+        );
       }
     }
 
+    const results = await Promise.all(tasks);
+    const seen = new Map<string, MemoryEvent>();
+    for (const batch of results) {
+      for (const ev of batch) seen.set(ev.id, ev);
+    }
     return [...seen.values()];
   }
 
@@ -896,13 +912,23 @@ export class Memorai {
     };
 
     if (ident.kind === "state" && ident.supersedes && ident.supersedes.length > 0) {
-      event.supersedes = ident.supersedes;
+      const validSupersedes: string[] = [];
       for (const oldId of ident.supersedes) {
         const old = await this.eventStore.getEvent(oldId);
-        if (old && old.invalidatedAt === undefined) {
+        if (!old) continue;
+        // Defense-in-depth against a misbehaving identifier: never let
+        // an event supersede another user's record. fetchRelatedEvents
+        // already scopes context per userId, but downstream callers can
+        // pass arbitrary ids — refuse cross-tenant invalidation here too.
+        if (old.userId !== event.userId) continue;
+        validSupersedes.push(oldId);
+        if (old.invalidatedAt === undefined) {
           old.invalidatedAt = event.occurredAt;
           await this.eventStore.putEvent(old);
         }
+      }
+      if (validSupersedes.length > 0) {
+        event.supersedes = validSupersedes;
       }
     }
 

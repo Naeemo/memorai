@@ -1419,6 +1419,87 @@ describe("Memorai event recall — additional coverage", () => {
     expect(events.length).toBe(0);
   });
 
+  test("cross-tenant supersedes are silently dropped", async () => {
+    // Alice writes a state event first.
+    const aliceIdentifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "alice prefers tea",
+          participants: ["alice"],
+          topics: ["drink"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: [ctx.nodes[0].id],
+        },
+      ],
+    ]);
+    const aliceMemory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier: aliceIdentifier,
+      evolution: { mode: "manual" },
+    });
+    await aliceMemory.write({
+      userId: "alice",
+      raw: {
+        content: { kind: "observation", text: "alice tea" },
+        text: "alice tea",
+      },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+    await aliceMemory.evolve();
+
+    const [aliceEvent] = await aliceMemory.listEvents();
+    expect(aliceEvent).toBeDefined();
+
+    // Now Bob's identifier maliciously points supersedes at Alice's event id.
+    const badIdentifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "bob prefers tea",
+          participants: ["bob"],
+          topics: ["drink"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: [ctx.nodes[0].id],
+          supersedes: [aliceEvent.id], // ← cross-tenant attempt
+        },
+      ],
+    ]);
+
+    // Share the same in-memory store across both Memorai instances so
+    // Bob's pipeline can SEE Alice's event in storage; the guard must
+    // refuse to invalidate it.
+    const sharedEventStore = new InMemoryEventStore();
+    await sharedEventStore.putEvent(aliceEvent);
+
+    const bobMemory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier: badIdentifier,
+      events: sharedEventStore,
+      evolution: { mode: "manual" },
+    });
+    await bobMemory.write({
+      userId: "bob",
+      raw: {
+        content: { kind: "observation", text: "bob tea" },
+        text: "bob tea",
+      },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+    await bobMemory.evolve();
+
+    // Alice's event must still be valid; Bob's event must NOT list it
+    // as a supersedes target.
+    const aliceStill = await sharedEventStore.getEvent(aliceEvent.id);
+    expect(aliceStill?.invalidatedAt).toBeUndefined();
+
+    const allEvents = await sharedEventStore.listEvents();
+    const bobsEvent = allEvents.find((e) => e.description === "bob prefers tea");
+    expect(bobsEvent?.supersedes).toBeUndefined();
+  });
+
   test("persist error in one ident doesn't block the rest of the batch", async () => {
     // Throw on first event by sending NaN sourceNodeIds, OK on second.
     const identifier: EventIdentifier = {
