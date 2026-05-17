@@ -141,7 +141,11 @@ export function generateHaystack(
     const template = HAYSTACK_TEMPLATES[i % HAYSTACK_TEMPLATES.length];
     const variation = `${template} (record #${i + 1})`;
     payloads.push({
-      payload: {
+      raw: {
+        content: { kind: "observation", text: variation },
+        text: variation,
+      },
+      annotations: {
         summary: variation,
         tags: ["haystack", `record-${i + 1}`],
         salienceScore: 0.3 + Math.random() * 0.4,
@@ -154,7 +158,11 @@ export function generateHaystack(
   for (let i = 0; i < distractorCount; i++) {
     const template = DISTRACTOR_TEMPLATES[i % DISTRACTOR_TEMPLATES.length];
     payloads.push({
-      payload: {
+      raw: {
+        content: { kind: "observation", text: template },
+        text: template,
+      },
+      annotations: {
         summary: template,
         tags: ["distractor", `dist-${i + 1}`],
         salienceScore: 0.5 + Math.random() * 0.3,
@@ -179,7 +187,11 @@ export function generateNeedles(
   for (let i = 0; i < count; i++) {
     const template = NEEDLE_TEMPLATES[i % NEEDLE_TEMPLATES.length];
     results.push({
-      payload: {
+      raw: {
+        content: { kind: "observation", text: template.summary },
+        text: template.summary,
+      },
+      annotations: {
         summary: template.summary,
         tags: template.tags,
         salienceScore: 0.9,
@@ -216,9 +228,14 @@ export function generateTemporalMemories(
   for (let i = 0; i < count; i++) {
     const timeOffset = Math.floor((i / count) * spanMs);
     const timestamp = now - spanMs + timeOffset;
+    const summary = `${templates[i % templates.length]} (at hour ${Math.floor(timeOffset / 3600000)})`;
     results.push({
-      payload: {
-        summary: `${templates[i % templates.length]} (at hour ${Math.floor(timeOffset / 3600000)})`,
+      raw: {
+        content: { kind: "observation", text: summary },
+        text: summary,
+      },
+      annotations: {
+        summary,
         tags: ["temporal", `hour-${Math.floor(timeOffset / 3600000)}`],
         salienceScore: 0.5 + Math.random() * 0.3,
         modality: ["text"],
@@ -238,9 +255,14 @@ export function generateAgentMemories(
   const results: Array<WritePayload & { agent: string }> = [];
   for (const agent of agents) {
     for (let i = 0; i < memoriesPerAgent; i++) {
+      const summary = `Agent ${agent} performed action ${i + 1}: ${generateId().slice(0, 8)}`;
       results.push({
-        payload: {
-          summary: `Agent ${agent} performed action ${i + 1}: ${generateId().slice(0, 8)}`,
+        raw: {
+          content: { kind: "observation", text: summary },
+          text: summary,
+        },
+        annotations: {
+          summary,
           tags: [agent, `action-${i + 1}`],
           salienceScore: 0.6,
           modality: ["text"],

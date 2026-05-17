@@ -1,5 +1,6 @@
 import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
 import { BM25Index } from "../bm25.js";
+import { composeIndexableText } from "../extraction/shared.js";
 
 /**
  * Minimal interface that any SQLite library must satisfy.
@@ -156,7 +157,7 @@ export class SQLiteAdapter implements StorageAdapter {
       id: node.id,
       json,
       timestamp: node.timestamp,
-      salience: node.payload.salienceScore,
+      salience: node.annotations.salienceScore,
       level: node.level,
       parentId: node.parentId ?? null,
       agentRole: node.meta.agentRole,
@@ -188,39 +189,66 @@ export class SQLiteAdapter implements StorageAdapter {
 
   queryByTimeRange(start: number, end: number, opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.byTimeRangeStmt.all([start, end]) as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
   queryByTags(tags: string[], opts?: QueryOpts): Promise<MemoryNode[]> {
     const jsonTags = JSON.stringify(tags);
     const rows = this.byTagsStmt.all([jsonTags, tags.length]) as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
   queryBySalience(minScore: number, opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.bySalienceStmt.all([minScore]) as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
   queryByUserId(userId: string, opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.byUserIdStmt.all([userId]) as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
   queryByActor(actor: string, opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.byActorStmt.all([actor]) as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
   queryByTarget(target: string, opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.byTargetStmt.all([target]) as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
-  async queryByText(
-    text: string,
-    opts?: QueryOpts & { limit?: number },
-  ): Promise<MemoryNode[]> {
+  async queryByText(text: string, opts?: QueryOpts & { limit?: number }): Promise<MemoryNode[]> {
     const limit = opts?.limit ?? 50;
     const hits = this.bm25.search(text, Math.max(limit, 50));
     const nodes: MemoryNode[] = [];
@@ -243,7 +271,12 @@ export class SQLiteAdapter implements StorageAdapter {
 
   listAll(opts?: QueryOpts): Promise<MemoryNode[]> {
     const rows = this.listAllStmt.all() as Array<{ json: string }>;
-    return Promise.resolve(this.applyOpts(rows.map((r) => this.parse(r.json)), opts));
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
   }
 
   close(): Promise<void> {
@@ -258,16 +291,13 @@ export class SQLiteAdapter implements StorageAdapter {
     const deleteTags = this.db.prepare(`DELETE FROM tags WHERE nodeId = ?`);
     deleteTags.run([node.id]);
     const insertTag = this.db.prepare(`INSERT OR IGNORE INTO tags (nodeId, tag) VALUES (?, ?)`);
-    for (const tag of node.payload.tags) {
+    for (const tag of node.annotations.tags) {
       insertTag.run([node.id, tag]);
     }
   }
 
   private indexableText(node: MemoryNode): string {
-    const parts = [node.payload.summary];
-    if (node.payload.description) parts.push(node.payload.description);
-    if (node.payload.tags.length > 0) parts.push(node.payload.tags.join(" "));
-    return parts.join(" ");
+    return composeIndexableText(node.raw, node.annotations);
   }
 
   private parse(json: string): MemoryNode {
@@ -291,8 +321,8 @@ export class SQLiteAdapter implements StorageAdapter {
           av = a.timestamp;
           bv = b.timestamp;
         } else if (key === "salience") {
-          av = a.payload.salienceScore;
-          bv = b.payload.salienceScore;
+          av = a.annotations.salienceScore;
+          bv = b.annotations.salienceScore;
         } else {
           av = a.meta.lastAccessed ?? 0;
           bv = b.meta.lastAccessed ?? 0;

@@ -49,20 +49,18 @@ describe("Event API — recordEvent / recall", () => {
     expect(nodes).toHaveLength(1);
     expect(nodes[0].actor).toBe("alice");
     expect(nodes[0].target).toBe("bob");
-    expect(nodes[0].payload.summary).toBe("Are you free for lunch?");
+    expect(nodes[0].raw.text).toBe("Are you free for lunch?");
     await memory.close();
   });
 
   test("recall returns RecalledMemory shape", async () => {
     const memory = new Memorai(baseConfig());
-    await memory
-      .recordEvent({
-        at: Date.now(),
-        actor: "user",
-        target: "assistant",
-        content: { kind: "message", text: "remind me to call Bob tomorrow" },
-      })
-      .nodes;
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "user",
+      target: "assistant",
+      content: { kind: "message", text: "remind me to call Bob tomorrow" },
+    }).nodes;
     const result = await memory.recall("what was I asked to do?", { topK: 5 });
     expect(result.memories.length).toBeGreaterThan(0);
     const m = result.memories[0];
@@ -100,9 +98,24 @@ describe("Event API — recordEvent / recall", () => {
   test("recallByRelationship returns events in either direction", async () => {
     const memory = new Memorai(baseConfig());
     await memory.recordEvents([
-      { actor: "alice", target: "bob", at: Date.now() - 100, content: { kind: "message", text: "hi" } },
-      { actor: "bob", target: "alice", at: Date.now(), content: { kind: "message", text: "hello back" } },
-      { actor: "alice", target: "carol", at: Date.now() + 100, content: { kind: "message", text: "unrelated" } },
+      {
+        actor: "alice",
+        target: "bob",
+        at: Date.now() - 100,
+        content: { kind: "message", text: "hi" },
+      },
+      {
+        actor: "bob",
+        target: "alice",
+        at: Date.now(),
+        content: { kind: "message", text: "hello back" },
+      },
+      {
+        actor: "alice",
+        target: "carol",
+        at: Date.now() + 100,
+        content: { kind: "message", text: "unrelated" },
+      },
     ]).nodes;
     const ab = await memory.recallByRelationship("alice", "bob", { topK: 10 });
     expect(ab.memories.length).toBeGreaterThan(0);
@@ -121,8 +134,18 @@ describe("Event API — recordEvent / recall", () => {
   test("userId scoping isolates conversations", async () => {
     const memory = new Memorai(baseConfig());
     await memory.recordEvents([
-      { userId: "conv-1", actor: "alice", at: Date.now(), content: { kind: "message", text: "alpha" } },
-      { userId: "conv-2", actor: "alice", at: Date.now(), content: { kind: "message", text: "bravo" } },
+      {
+        userId: "conv-1",
+        actor: "alice",
+        at: Date.now(),
+        content: { kind: "message", text: "alpha" },
+      },
+      {
+        userId: "conv-2",
+        actor: "alice",
+        at: Date.now(),
+        content: { kind: "message", text: "bravo" },
+      },
     ]).nodes;
     const c1 = await memory.recall("any", { userId: "conv-1", topK: 10 });
     const c2 = await memory.recall("any", { userId: "conv-2", topK: 10 });
@@ -140,9 +163,9 @@ describe("Event API — recordEvent / recall", () => {
       actor: "user",
       content: { kind: "image", image: "blob:test-123", caption: "screenshot of error" },
     }).nodes;
-    expect(nodes[0].payload.media?.frames?.[0]).toBe("blob:test-123");
-    expect(nodes[0].payload.summary).toBe("screenshot of error");
-    expect(nodes[0].payload.modality).toContain("vision");
+    expect(nodes[0].raw.media?.frames?.[0]).toBe("blob:test-123");
+    expect(nodes[0].raw.text).toBe("screenshot of error");
+    expect(nodes[0].annotations.modality).toContain("vision");
     await memory.close();
   });
 
@@ -157,8 +180,8 @@ describe("Event API — recordEvent / recall", () => {
     }).nodes;
     expect(nodes[0].timestamp).toBe(end);
     expect(nodes[0].duration).toBe(60_000);
-    expect(nodes[0].payload.summary).toBe("demo walkthrough");
-    expect(nodes[0].payload.media?.video).toBe("blob:vid-1");
+    expect(nodes[0].raw.text).toBe("demo walkthrough");
+    expect(nodes[0].raw.media?.video).toBe("blob:vid-1");
     await memory.close();
   });
 
@@ -199,9 +222,9 @@ describe("WrapExtractor", () => {
     };
     const out = await e.extract(event, ctx);
     expect(out).toHaveLength(1);
-    expect(out[0].payload.summary).toBe("hello world");
-    expect(out[0].payload.tags).toContain("alice");
-    expect(out[0].payload.tags).toContain("bob");
+    expect(out[0].raw.text).toBe("hello world");
+    expect(out[0].annotations!.tags).toContain("alice");
+    expect(out[0].annotations!.tags).toContain("bob");
     expect(out[0].actor).toBe("alice");
     expect(out[0].target).toBe("bob");
   });
@@ -220,10 +243,16 @@ describe("LightExtractor", () => {
       ctx,
     );
     const urgent = await e.extract(
-      { at: Date.now(), actor: "u", content: { kind: "message", text: "CRITICAL: server is down, important to fix ASAP" } },
+      {
+        at: Date.now(),
+        actor: "u",
+        content: { kind: "message", text: "CRITICAL: server is down, important to fix ASAP" },
+      },
       ctx,
     );
-    expect(urgent[0].payload.salienceScore!).toBeGreaterThan(mundane[0].payload.salienceScore!);
+    expect(urgent[0].annotations!.salienceScore!).toBeGreaterThan(
+      mundane[0].annotations!.salienceScore!,
+    );
   });
 
   test("extracts proper-noun-like tags from text", async () => {
@@ -234,10 +263,14 @@ describe("LightExtractor", () => {
       now: () => Date.now(),
     };
     const out = await e.extract(
-      { at: Date.now(), actor: "alice", content: { kind: "message", text: "Met with Sarah at GoogleHQ about #project Atlas" } },
+      {
+        at: Date.now(),
+        actor: "alice",
+        content: { kind: "message", text: "Met with Sarah at GoogleHQ about #project Atlas" },
+      },
       ctx,
     );
-    const tags = out[0].payload.tags ?? [];
+    const tags = out[0].annotations!.tags ?? [];
     expect(tags).toContain("sarah");
     expect(tags).toContain("project");
     expect(tags).toContain("atlas");
@@ -257,7 +290,7 @@ describe("LLMExtractor", () => {
       ctx,
     );
     expect(out).toHaveLength(1);
-    expect(out[0].payload.summary).toBe("hello");
+    expect(out[0].raw.text).toBe("hello");
   });
 
   test("uses provided LLM and parses JSON output", async () => {
@@ -281,10 +314,10 @@ describe("LLMExtractor", () => {
       { at: Date.now(), actor: "alice", content: { kind: "message", text: "raw text" } },
       ctx,
     );
-    expect(out[0].payload.summary).toBe("Custom summary");
-    expect(out[0].payload.tags).toContain("x");
-    expect(out[0].payload.salienceScore).toBeCloseTo(0.77, 5);
-    expect(out[0].payload.description).toBe("Optional desc");
+    expect(out[0].annotations!.summary).toBe("Custom summary");
+    expect(out[0].annotations!.tags).toContain("x");
+    expect(out[0].annotations!.salienceScore).toBeCloseTo(0.77, 5);
+    expect(out[0].annotations!.description).toBe("Optional desc");
   });
 
   test("falls back to LightExtractor on JSON parse failure", async () => {
@@ -301,7 +334,7 @@ describe("LLMExtractor", () => {
       ctx,
     );
     expect(out).toHaveLength(1);
-    expect(out[0].payload.summary).toBe("hello"); // light extractor passes through
+    expect(out[0].raw.text).toBe("hello"); // light fallback preserves raw verbatim
   });
 });
 
@@ -361,9 +394,7 @@ describe("Multi-pathway recall", () => {
     expect(m.provenance).toBeDefined();
     expect(m.provenance!.pathways.length).toBeGreaterThan(0);
     // BM25 should surface the literal token "password"; semantic should too.
-    expect(
-      m.provenance!.pathways.some((p) => p === "bm25" || p === "semantic"),
-    ).toBe(true);
+    expect(m.provenance!.pathways.some((p) => p === "bm25" || p === "semantic")).toBe(true);
     await memory.close();
   });
 
@@ -394,10 +425,9 @@ describe("Multi-pathway recall", () => {
     expect(result.memories.length).toBeGreaterThan(0);
     const pathways = result.memories[0].provenance?.pathways ?? [];
     // Variant-level tags should appear
-    expect(
-      pathways.includes("primary") ||
-        pathways.some((p) => p.startsWith("expansion:")),
-    ).toBe(true);
+    expect(pathways.includes("primary") || pathways.some((p) => p.startsWith("expansion:"))).toBe(
+      true,
+    );
     await memory.close();
   });
 

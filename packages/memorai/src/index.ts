@@ -1,7 +1,7 @@
 import { EvolutionEngine } from "./evolution.js";
 import { RetrievalEngine } from "./retrieval.js";
 import { generateId } from "./utils.js";
-import { LightExtractor, LLMExtractor } from "./extraction/index.js";
+import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction/index.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -11,9 +11,13 @@ import type {
   ListOptions,
   MediaPayload,
   MemoraiConfig,
+  MemoryAnnotations,
   MemoryNode,
   Modality,
   NodePatch,
+  RawContent,
+  ReAnnotateOptions,
+  ReAnnotateResult,
   RecallOptions,
   RecallResult,
   RecalledMemory,
@@ -39,12 +43,13 @@ const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   },
 };
 
-const DEFAULT_TRIGGERS: Required<Omit<AutoEvolveTriggers, "intervalMs">> & { intervalMs?: number } = {
-  onWriteCount: 100,
-  onIdleMs: 5000,
-  onStmFull: true,
-  onClose: true,
-};
+const DEFAULT_TRIGGERS: Required<Omit<AutoEvolveTriggers, "intervalMs">> & { intervalMs?: number } =
+  {
+    onWriteCount: 100,
+    onIdleMs: 5000,
+    onStmFull: true,
+    onClose: true,
+  };
 
 /**
  * Memorai — the public memory engine.
@@ -259,9 +264,10 @@ export class Memorai {
     const now = Date.now();
     const profile = this.agentProfile;
 
-    const tags = payload.payload.tags ?? [];
-    const salienceScore = payload.payload.salienceScore ?? 0.5;
-    const modality: Modality[] = payload.payload.modality ?? ["text"];
+    const annInput = payload.annotations ?? {};
+    const tags = annInput.tags ?? [];
+    const salienceScore = annInput.salienceScore ?? 0.5;
+    const modality: Modality[] = annInput.modality ?? ["text"];
 
     const allowedLevels = profile.writePolicy.levels;
     if (!allowedLevels.includes("segment")) {
@@ -277,17 +283,37 @@ export class Memorai {
       }
     }
 
-    let embedding = payload.payload.embedding;
-    if (!opts.skipEmbedding && !embedding && payload.payload.summary) {
-      embedding = await this.config.embedding.embed(payload.payload.summary);
+    const indexableText = composeIndexableText(payload.raw, annInput);
+    let embedding = annInput.embedding;
+    if (!opts.skipEmbedding && !embedding && indexableText) {
+      embedding = await this.config.embedding.embed(indexableText);
     }
 
     const boostedSalience = salienceScore * profile.writePolicy.salienceBoost;
 
-    let media: MediaPayload | undefined = payload.payload.media;
+    let media: MediaPayload | undefined = payload.raw.media;
     if (media && this.config.compression) {
       media = await this.compressMedia(media, this.config.compression);
     }
+
+    const raw: RawContent = {
+      content: payload.raw.content,
+      text: payload.raw.text,
+      media,
+    };
+
+    const { summary, facts, description, triples, ...openAnnotations } = annInput;
+    const annotations: MemoryAnnotations = {
+      ...openAnnotations,
+      summary,
+      facts,
+      description,
+      tags,
+      salienceScore: boostedSalience,
+      modality,
+      embedding,
+      triples,
+    };
 
     const segment: MemoryNode = {
       id,
@@ -300,15 +326,10 @@ export class Memorai {
       parentId: payload.parentId,
       childrenIds: payload.childrenIds,
       mergedFrom: payload.mergedFrom,
-      payload: {
-        summary: payload.payload.summary,
-        description: payload.payload.description,
-        media,
-        embedding,
-        tags,
-        salienceScore: boostedSalience,
-        modality,
-      },
+      raw,
+      annotations,
+      annotatedAt: payload.annotationVersion ? now : undefined,
+      annotationVersion: payload.annotationVersion,
       meta: {
         sourceAgent: payload.meta?.sourceAgent ?? profile.agentId,
         agentRole: payload.meta?.agentRole ?? profile.role,
@@ -338,15 +359,18 @@ export class Memorai {
     if (hasEmbedBatch) {
       const toEmbed: { index: number; text: string }[] = [];
       for (const [i, p] of payloads.entries()) {
-        if (!p.payload.embedding && p.payload.summary) {
-          toEmbed.push({ index: i, text: p.payload.summary });
+        if (!p.annotations?.embedding) {
+          const text = composeIndexableText(p.raw, p.annotations);
+          if (text) toEmbed.push({ index: i, text });
         }
       }
 
       if (toEmbed.length > 0) {
         const embeddings = await embeddingService.embedBatch!(toEmbed.map((e) => e.text));
         for (const [i, e] of toEmbed.entries()) {
-          payloads[e.index].payload.embedding = embeddings[i];
+          const p = payloads[e.index];
+          p.annotations = { ...(p.annotations ?? {}) };
+          p.annotations.embedding = embeddings[i];
         }
       }
     }
@@ -476,12 +500,15 @@ export class Memorai {
     await this.config.storage.delete(id);
   }
 
-  /** Update a memory node's fields. */
+  /** Update a memory node's annotations / linkage / metadata. Tier 1 `raw` is never modified through this surface — use `reAnnotate()` to regenerate Tier 2 from raw. */
   async update(id: string, patch: NodePatch): Promise<MemoryNode> {
     const node = await this.config.storage.get(id);
     if (!node) throw new Error(`Memory node not found: ${id}`);
 
-    if (patch.payload) node.payload = { ...node.payload, ...patch.payload };
+    const annotationPatch = patch.annotations ?? patch.payload;
+    if (annotationPatch) {
+      node.annotations = { ...node.annotations, ...annotationPatch };
+    }
     if (patch.meta) node.meta = { ...node.meta, ...patch.meta };
     if ("userId" in patch) node.userId = patch.userId;
     if ("actor" in patch) node.actor = patch.actor;
@@ -492,6 +519,113 @@ export class Memorai {
 
     await this.config.storage.put(node);
     return node;
+  }
+
+  /**
+   * Regenerate Tier 2 annotations + Tier 3 indexes from Tier 1 raw events.
+   *
+   * The unique three-tier capability: existing memories keep their identity
+   * (id, timestamp, raw) while annotations and embeddings are replaced. Use
+   * it to upgrade the extractor, switch embedding models, or backfill new
+   * annotation kinds across the whole store — without losing the source
+   * timeline.
+   *
+   * Pass `opts.extractor` to use a different extractor than the configured
+   * one; `opts.filter` to scope to a subset; `opts.skipEmbedding` to keep
+   * existing embeddings (when only annotations need refreshing).
+   */
+  async reAnnotate(opts: ReAnnotateOptions = {}): Promise<ReAnnotateResult> {
+    const extractor = opts.extractor ?? this.extractor;
+    const allNodes = await this.config.storage.listAll();
+    const targets = opts.filter ? allNodes.filter(opts.filter) : allNodes;
+    const total = targets.length;
+
+    const result: ReAnnotateResult = {
+      reannotated: 0,
+      skipped: 0,
+      errors: [],
+    };
+
+    for (let i = 0; i < targets.length; i++) {
+      const node = targets[i];
+      try {
+        const event = this.nodeToEvent(node);
+        const ctx = {
+          recent: [] as MemoryNode[],
+          embedding: this.config.embedding,
+          llm: this.config.llm,
+          now: () => Date.now(),
+        };
+        const payloads = await extractor.extract(event, ctx);
+        if (payloads.length === 0) {
+          result.skipped += 1;
+          opts.onProgress?.(i + 1, total);
+          continue;
+        }
+
+        const first = payloads[0];
+        const annInput = first.annotations ?? {};
+        const tags = annInput.tags ?? [];
+        const salienceScore = annInput.salienceScore ?? node.annotations.salienceScore;
+        const modality: Modality[] = annInput.modality ?? node.annotations.modality;
+
+        let embedding = annInput.embedding;
+        if (!opts.skipEmbedding && !embedding) {
+          const indexableText = composeIndexableText(node.raw, annInput);
+          if (indexableText) {
+            embedding = await this.config.embedding.embed(indexableText);
+          }
+        } else if (opts.skipEmbedding && !embedding) {
+          embedding = node.annotations.embedding;
+        }
+
+        const { summary, facts, description, triples, ...openAnnotations } = annInput;
+        node.annotations = {
+          ...openAnnotations,
+          summary,
+          facts,
+          description,
+          tags,
+          salienceScore,
+          modality,
+          embedding,
+          triples,
+        };
+        node.annotatedAt = Date.now();
+        if (first.annotationVersion) {
+          node.annotationVersion = first.annotationVersion;
+        }
+
+        await this.config.storage.put(node);
+        result.reannotated += 1;
+      } catch (err) {
+        result.errors.push({
+          id: node.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      opts.onProgress?.(i + 1, total);
+    }
+
+    return result;
+  }
+
+  private nodeToEvent(node: MemoryNode): Event {
+    const event: Event = {
+      actor: node.actor ?? this.config.defaultActor ?? this.agentProfile.agentId,
+      content: node.raw.content,
+    };
+    if (node.duration > 0) {
+      event.during = { start: node.timestamp - node.duration, end: node.timestamp };
+    } else {
+      event.at = node.timestamp;
+    }
+    if (node.target !== undefined) event.target = node.target;
+    if (node.userId !== undefined) event.userId = node.userId;
+    if (node.meta.participants !== undefined) event.participants = node.meta.participants;
+    if (node.meta.writeContext !== undefined) event.context = node.meta.writeContext;
+    if (node.meta.eventId !== undefined) event.id = node.meta.eventId;
+    return event;
   }
 
   /** Close all resources (storage, background timers, etc.). */
@@ -555,12 +689,12 @@ export class Memorai {
         userId: n.userId,
         actor: n.actor,
         target: n.target,
-        summary: n.payload.summary,
-        description: n.payload.description,
-        tags: n.payload.tags,
-        salienceScore: n.payload.salienceScore,
-        evidence: n.payload.media,
-        score: annotated._score ?? n.payload.salienceScore,
+        summary: n.annotations.summary ?? n.raw.text ?? "",
+        description: n.annotations.description,
+        tags: n.annotations.tags,
+        salienceScore: n.annotations.salienceScore,
+        evidence: n.raw.media,
+        score: annotated._score ?? n.annotations.salienceScore,
         level: n.level,
         provenance,
       };
@@ -614,9 +748,7 @@ export class Memorai {
     for (const r of reranked) {
       const m = byId.get(r.id);
       if (!m) continue;
-      const pathways = m.provenance?.pathways
-        ? [...m.provenance.pathways, "rerank"]
-        : ["rerank"];
+      const pathways = m.provenance?.pathways ? [...m.provenance.pathways, "rerank"] : ["rerank"];
       const pathwayScores = {
         ...(m.provenance?.pathwayScores ?? {}),
         rerank: r.score,
@@ -634,9 +766,7 @@ export class Memorai {
 
     // Confidence after rerank: average of rerank scores (already in [0,1]).
     const confidence =
-      memories.length === 0
-        ? 0
-        : memories.reduce((s, m) => s + m.score, 0) / memories.length;
+      memories.length === 0 ? 0 : memories.reduce((s, m) => s + m.score, 0) / memories.length;
 
     return {
       memories,
@@ -762,10 +892,7 @@ export class Memorai {
         if (annotated._pathwayScores) {
           for (const [name, s] of Object.entries(annotated._pathwayScores)) {
             // keep the max per pathway across variants
-            entry.pathwayScores[name] = Math.max(
-              entry.pathwayScores[name] ?? 0,
-              s,
-            );
+            entry.pathwayScores[name] = Math.max(entry.pathwayScores[name] ?? 0, s);
           }
         }
       }
@@ -785,11 +912,11 @@ export class Memorai {
         userId: n.userId,
         actor: n.actor,
         target: n.target,
-        summary: n.payload.summary,
-        description: n.payload.description,
-        tags: n.payload.tags,
-        salienceScore: n.payload.salienceScore,
-        evidence: n.payload.media,
+        summary: n.annotations.summary ?? n.raw.text ?? "",
+        description: n.annotations.description,
+        tags: n.annotations.tags,
+        salienceScore: n.annotations.salienceScore,
+        evidence: n.raw.media,
         score: entry.score,
         level: n.level,
         provenance: {
@@ -801,14 +928,15 @@ export class Memorai {
     });
 
     const totalVariants = subResults.length;
-    const confidence = memories.length === 0
-      ? 0
-      : memories.reduce((sum, m) => {
-          const variantHits = (m.provenance?.pathways ?? []).filter((p) =>
-            p === "primary" || p === "hyde" || p.startsWith("expansion:"),
-          ).length;
-          return sum + Math.min(1, variantHits / totalVariants);
-        }, 0) / memories.length;
+    const confidence =
+      memories.length === 0
+        ? 0
+        : memories.reduce((sum, m) => {
+            const variantHits = (m.provenance?.pathways ?? []).filter(
+              (p) => p === "primary" || p === "hyde" || p.startsWith("expansion:"),
+            ).length;
+            return sum + Math.min(1, variantHits / totalVariants);
+          }, 0) / memories.length;
 
     return { memories, confidence, totalScanned };
   }
@@ -899,13 +1027,14 @@ export class Memorai {
  * be written back to storage.
  */
 function stripAnnotations(node: MemoryNode): MemoryNode {
-  const { id, timestamp, duration, level, payload, meta } = node;
+  const { id, timestamp, duration, level, raw, annotations, meta } = node;
   const clean: MemoryNode = {
     id,
     timestamp,
     duration,
     level,
-    payload,
+    raw,
+    annotations,
     meta,
   };
   if (node.userId !== undefined) clean.userId = node.userId;
@@ -914,6 +1043,8 @@ function stripAnnotations(node: MemoryNode): MemoryNode {
   if (node.parentId !== undefined) clean.parentId = node.parentId;
   if (node.childrenIds !== undefined) clean.childrenIds = node.childrenIds;
   if (node.mergedFrom !== undefined) clean.mergedFrom = node.mergedFrom;
+  if (node.annotatedAt !== undefined) clean.annotatedAt = node.annotatedAt;
+  if (node.annotationVersion !== undefined) clean.annotationVersion = node.annotationVersion;
   return clean;
 }
 

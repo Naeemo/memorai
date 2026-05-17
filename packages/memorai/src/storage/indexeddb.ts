@@ -4,6 +4,7 @@
 */
 import type { MemoryNode, QueryOpts, StorageAdapter } from "../types.js";
 import { BM25Index } from "../bm25.js";
+import { composeIndexableText } from "../extraction/shared.js";
 
 /**
  * Browser IndexedDB storage adapter.
@@ -19,7 +20,9 @@ export class IndexedDBAdapter implements StorageAdapter {
   private db: IDBDatabase | null = null;
   private readonly dbName: string;
   private readonly storeName = "memories";
-  private readonly version = 2;
+  // v3: salience index keyPath moved from "payload.salienceScore" to
+  // "annotations.salienceScore" (Memorai 0.3.0 raw/annotations split).
+  private readonly version = 3;
   private bm25 = new BM25Index();
   private bm25Hydrated = false;
 
@@ -48,9 +51,14 @@ export class IndexedDBAdapter implements StorageAdapter {
         } else {
           store = tx!.objectStore(this.storeName);
         }
+        // The salience index was repointed in v3 (payload → annotations);
+        // drop+recreate so existing DBs migrate cleanly.
+        if (store.indexNames.contains("salience")) {
+          store.deleteIndex("salience");
+        }
         // Indexes — created idempotently
         ensureIndex(store, "timestamp", "timestamp");
-        ensureIndex(store, "salience", "payload.salienceScore");
+        ensureIndex(store, "salience", "annotations.salienceScore");
         ensureIndex(store, "level", "level");
         ensureIndex(store, "parentId", "parentId");
         ensureIndex(store, "agentRole", "meta.agentRole");
@@ -114,15 +122,12 @@ export class IndexedDBAdapter implements StorageAdapter {
     // IndexedDB doesn't support array-contains natively; scan all
     const all = await this.listAll();
     const tagSet = new Set(tags.map((t) => t.toLowerCase()));
-    const filtered = all.filter((n) => n.payload.tags.some((t) => tagSet.has(t.toLowerCase())));
+    const filtered = all.filter((n) => n.annotations.tags.some((t) => tagSet.has(t.toLowerCase())));
     return this.applyOpts(filtered, opts);
   }
 
   async queryBySalience(minScore: number, opts?: QueryOpts): Promise<MemoryNode[]> {
-    return this.applyOpts(
-      await this.scanIndex("salience", IDBKeyRange.lowerBound(minScore)),
-      opts,
-    );
+    return this.applyOpts(await this.scanIndex("salience", IDBKeyRange.lowerBound(minScore)), opts);
   }
 
   async queryByUserId(userId: string, opts?: QueryOpts): Promise<MemoryNode[]> {
@@ -137,10 +142,7 @@ export class IndexedDBAdapter implements StorageAdapter {
     return this.applyOpts(await this.scanIndex("target", target), opts);
   }
 
-  async queryByText(
-    text: string,
-    opts?: QueryOpts & { limit?: number },
-  ): Promise<MemoryNode[]> {
+  async queryByText(text: string, opts?: QueryOpts & { limit?: number }): Promise<MemoryNode[]> {
     if (!this.bm25Hydrated) {
       const all = await this.listAll();
       for (const n of all) this.bm25.put(n.id, this.indexableText(n));
@@ -200,16 +202,10 @@ export class IndexedDBAdapter implements StorageAdapter {
   // ─── Helpers ───
 
   private indexableText(node: MemoryNode): string {
-    const parts = [node.payload.summary];
-    if (node.payload.description) parts.push(node.payload.description);
-    if (node.payload.tags.length > 0) parts.push(node.payload.tags.join(" "));
-    return parts.join(" ");
+    return composeIndexableText(node.raw, node.annotations);
   }
 
-  private async scanIndex(
-    name: string,
-    range: IDBKeyRange | IDBValidKey,
-  ): Promise<MemoryNode[]> {
+  private async scanIndex(name: string, range: IDBKeyRange | IDBValidKey): Promise<MemoryNode[]> {
     const db = await this.getDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(this.storeName, "readonly");
@@ -248,8 +244,8 @@ export class IndexedDBAdapter implements StorageAdapter {
           av = a.timestamp;
           bv = b.timestamp;
         } else if (key === "salience") {
-          av = a.payload.salienceScore;
-          bv = b.payload.salienceScore;
+          av = a.annotations.salienceScore;
+          bv = b.annotations.salienceScore;
         } else {
           av = a.meta.lastAccessed ?? 0;
           bv = b.meta.lastAccessed ?? 0;

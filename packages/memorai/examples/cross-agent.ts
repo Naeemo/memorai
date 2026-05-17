@@ -66,7 +66,11 @@ const proactiveAgent = new Memorai({
 async function scenario() {
   // Proactive agent detects a trigger
   await proactiveAgent.write({
-    payload: {
+    raw: {
+      content: { kind: "observation", text: "User has been idle for 10 minutes" },
+      text: "User has been idle for 10 minutes",
+    },
+    annotations: {
       summary: "User has been idle for 10 minutes",
       tags: ["idle", "trigger"],
       salienceScore: 0.9,
@@ -76,7 +80,11 @@ async function scenario() {
 
   // Proactive agent detects another trigger
   await proactiveAgent.write({
-    payload: {
+    raw: {
+      content: { kind: "observation", text: "User opened Slack" },
+      text: "User opened Slack",
+    },
+    annotations: {
       summary: "User opened Slack",
       tags: ["slack", "trigger"],
       salienceScore: 0.7,
@@ -86,7 +94,14 @@ async function scenario() {
 
   // Reasoning agent adds context
   await reasoningAgent.write({
-    payload: {
+    raw: {
+      content: {
+        kind: "observation",
+        text: "User is preparing for a meeting — context from calendar",
+      },
+      text: "User is preparing for a meeting — context from calendar",
+    },
+    annotations: {
       summary: "User is preparing for a meeting — context from calendar",
       tags: ["meeting", "context"],
       salienceScore: 0.8,
@@ -101,7 +116,9 @@ async function scenario() {
     topK: 5,
   });
   console.log("\n[Proactive] Triggers found:");
-  triggers.nodes.forEach((n) => console.log(`  - ${n.payload.summary} (${n.level})`));
+  triggers.nodes.forEach((n) =>
+    console.log(`  - ${n.annotations.summary ?? n.raw.text} (${n.level})`),
+  );
 
   // Reasoning agent queries: what's the overall picture?
   const picture = await reasoningAgent.retrieve({
@@ -110,16 +127,16 @@ async function scenario() {
     topK: 5,
   });
   console.log("\n[Reasoning] Big picture:");
-  picture.nodes.forEach((n) => console.log(`  - ${n.payload.summary} (${n.level})`));
+  picture.nodes.forEach((n) =>
+    console.log(`  - ${n.annotations.summary ?? n.raw.text} (${n.level})`),
+  );
 
   // Both agents see the same data but at different granularity
   console.log("\nShared storage has:");
   const all = await sharedStorage.listAll();
   console.log(`  ${all.length} total nodes`);
   console.log(`  ${all.filter((n) => n.level === "segment").length} segments`);
-  console.log(
-    `  ${all.filter((n) => n.level === "atomic_action").length} atomic actions`,
-  );
+  console.log(`  ${all.filter((n) => n.level === "atomic_action").length} atomic actions`);
   console.log(`  ${all.filter((n) => n.level === "event").length} events`);
 
   await reasoningAgent.close();
