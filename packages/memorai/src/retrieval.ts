@@ -8,6 +8,7 @@ import type {
   TraversalOrder,
   TraversalStats,
 } from "./types.js";
+import type { EntityGraph } from "./graph/types.js";
 import type { VectorFilter, VectorIndex } from "./vector/types.js";
 
 /** Reciprocal-Rank-Fusion constant. Standard literature value. */
@@ -38,6 +39,7 @@ export class RetrievalEngine {
   constructor(
     private readonly storage: StorageAdapter,
     private readonly vectorIndex: VectorIndex | undefined = undefined,
+    private readonly entityGraph: EntityGraph | undefined = undefined,
   ) {}
 
   async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
@@ -90,6 +92,7 @@ export class RetrievalEngine {
     if (query.embedding) n += 1;
     if (query.text) {
       n += 2; // bm25 + tag
+      if (this.entityGraph) n += 1; // graph
     }
     if (query.timeRange) n += 1;
     if (query.strategy === "exploratory" || traversal === "salience") n += 1;
@@ -116,6 +119,9 @@ export class RetrievalEngine {
     if (query.text) {
       tasks.push(this.runPathway("bm25", () => this.bm25Pathway(query)));
       tasks.push(this.runPathway("tag", () => this.tagPathway(query)));
+      if (this.entityGraph) {
+        tasks.push(this.runPathway("graph", () => this.graphPathway(query)));
+      }
     }
     if (query.timeRange) {
       tasks.push(
@@ -258,6 +264,44 @@ export class RetrievalEngine {
     });
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, PATHWAY_DEPTH);
+  }
+
+  /**
+   * Graph-aware pathway. For each entity-like token in the query, walk the
+   * graph one hop and collect source-node ids from each matched edge. A
+   * node referenced by more (or higher-confidence) edges ranks higher.
+   *
+   * This pathway is the bridge between (subject, predicate, object) triples
+   * extracted at write time and the question-time retrieval — closing the
+   * Zep/Graphiti gap while staying RRF-fusable with the other pathways.
+   */
+  private async graphPathway(query: RetrievalQuery): Promise<Array<{ id: string; score: number }>> {
+    if (!this.entityGraph) return [];
+    const tokens = extractEntityTokens(query.text!);
+    if (tokens.length === 0) return [];
+
+    const scores = new Map<string, number>();
+    for (const token of tokens) {
+      let edges;
+      try {
+        edges = await this.entityGraph.queryNeighbors(token, {
+          userId: query.userId,
+          excludeInvalidated: true,
+          limit: PATHWAY_DEPTH,
+        });
+      } catch {
+        continue;
+      }
+      for (const e of edges) {
+        if (!e.sourceNodeId) continue;
+        const weight = (e.confidence ?? 0.5) + 0.5; // [0.5, 1.5]
+        scores.set(e.sourceNodeId, (scores.get(e.sourceNodeId) ?? 0) + weight);
+      }
+    }
+
+    const sorted = [...scores.entries()].map(([id, score]) => ({ id, score }));
+    sorted.sort((a, b) => b.score - a.score);
+    return sorted.slice(0, PATHWAY_DEPTH);
   }
 
   private async timePathway(
@@ -446,4 +490,73 @@ export class RetrievalEngine {
       i = smallest;
     }
   }
+}
+
+/**
+ * Pull entity-like tokens out of a natural-language query. We're permissive
+ * here: lowercase the input, split on non-word boundaries, drop short tokens
+ * and common stopwords. The graph pathway then probes each candidate.
+ *
+ * False positives are fine — the graph will simply return zero neighbors
+ * for them — but false negatives miss valid graph entry points, so we err
+ * on the side of inclusion.
+ */
+const ENTITY_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "what",
+  "who",
+  "how",
+  "why",
+  "when",
+  "where",
+  "did",
+  "does",
+  "are",
+  "was",
+  "were",
+  "is",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "by",
+  "from",
+  "about",
+  "have",
+  "has",
+  "had",
+  "been",
+  "being",
+  "tell",
+  "told",
+  "say",
+  "said",
+  "ask",
+  "asked",
+  "want",
+  "wanted",
+  "like",
+  "likes",
+  "liked",
+]);
+
+export function extractEntityTokens(text: string): string[] {
+  if (!text) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of text.toLowerCase().split(/[^a-z0-9_-]+/)) {
+    const token = raw.trim();
+    if (token.length < 3) continue;
+    if (ENTITY_STOPWORDS.has(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
 }

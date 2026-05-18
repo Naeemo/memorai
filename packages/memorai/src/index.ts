@@ -34,6 +34,7 @@ import type {
   WritePayload,
 } from "./types.js";
 import type { VectorIndex } from "./vector/types.js";
+import type { EntityGraph, GraphEdge, GraphPath, UpsertEdgeInput } from "./graph/types.js";
 
 const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   agentId: "default",
@@ -80,6 +81,7 @@ export class Memorai {
   private readonly eventStore: EventStore;
   private readonly identifier?: EventIdentifier;
   private readonly vectorIndex?: VectorIndex;
+  private readonly entityGraph?: EntityGraph;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
   private writesSinceEvolve = 0;
@@ -90,7 +92,8 @@ export class Memorai {
 
   constructor(private readonly config: MemoraiConfig) {
     this.vectorIndex = config.vectorIndex;
-    this.retrieval = new RetrievalEngine(config.storage, this.vectorIndex);
+    this.entityGraph = config.entityGraph;
+    this.retrieval = new RetrievalEngine(config.storage, this.vectorIndex, this.entityGraph);
     this.evolution = new EvolutionEngine(config.storage, config.evolution);
     this.agentProfile = config.agentProfile ?? DEFAULT_AGENT_PROFILE;
     this.evolveMode = config.evolution?.mode ?? "auto";
@@ -587,6 +590,7 @@ export class Memorai {
 
     await this.config.storage.put(segment);
     await this.upsertNodeVector(segment);
+    await this.upsertNodeTriples(segment);
     await this.evolution.processSegment(segment);
     await this.resyncVectorChainFromSegment(segment.id);
     this.onAfterWrite();
@@ -1545,6 +1549,70 @@ export class Memorai {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // Entity graph — population + queries
+  // ═══════════════════════════════════════════════════════════
+
+  /** Upsert a (subject, predicate, object) edge into the configured graph. */
+  async upsertGraphEdge(input: UpsertEdgeInput): Promise<GraphEdge | null> {
+    if (!this.entityGraph) return null;
+    return this.entityGraph.upsertEdge(input);
+  }
+
+  /** Neighbors of an entity in the configured graph (edges in either direction). */
+  async graphNeighbors(
+    entity: string,
+    opts: {
+      userId?: string;
+      predicate?: string;
+      limit?: number;
+      excludeInvalidated?: boolean;
+    } = {},
+  ): Promise<GraphEdge[]> {
+    if (!this.entityGraph) return [];
+    return this.entityGraph.queryNeighbors(entity, {
+      userId: opts.userId,
+      predicate: opts.predicate,
+      excludeInvalidated: opts.excludeInvalidated,
+      limit: opts.limit,
+    });
+  }
+
+  /** Shortest paths between two entities, up to `maxDepth` hops. */
+  async graphPaths(
+    from: string,
+    to: string,
+    opts: { maxDepth?: number; userId?: string; limit?: number } = {},
+  ): Promise<GraphPath[]> {
+    if (!this.entityGraph) return [];
+    return this.entityGraph.queryPaths(from, to, opts);
+  }
+
+  /**
+   * Pull (subject, predicate, object) triples from the node's Tier 2
+   * annotations into the configured entity graph. No-op when no graph is
+   * configured or the node has no triples.
+   */
+  private async upsertNodeTriples(node: MemoryNode): Promise<void> {
+    if (!this.entityGraph) return;
+    const triples = node.annotations.triples;
+    if (!triples || triples.length === 0) return;
+    const inputs: UpsertEdgeInput[] = triples.map((t) => ({
+      subject: t.subject,
+      predicate: t.predicate,
+      object: t.object,
+      confidence: t.confidence,
+      sourceNodeId: node.id,
+      userId: node.userId,
+      validAt: node.timestamp,
+    }));
+    try {
+      await this.entityGraph.upsertEdges(inputs);
+    } catch (err) {
+      console.error("[Memorai] entityGraph.upsertEdges failed:", err);
+    }
+  }
+
   private async compressMedia(
     media: MediaPayload,
     compression: CompressionService,
@@ -1621,7 +1689,7 @@ export { LLMReranker, parseScores as parseRerankerScores } from "./reranker.js";
 export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";
-export { RetrievalEngine } from "./retrieval.js";
+export { RetrievalEngine, extractEntityTokens } from "./retrieval.js";
 export { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 export {
   BrowserImageCompressor,
@@ -1652,6 +1720,17 @@ export {
   type VectorQueryResult,
   type VectorRecord,
 } from "./vector/index.js";
+export {
+  InMemoryEntityGraph,
+  canonicalName as graphCanonicalName,
+  edgePassesFilter,
+  type EdgeFilter,
+  type EntityGraph,
+  type GraphEdge,
+  type GraphEntity,
+  type GraphPath,
+  type UpsertEdgeInput,
+} from "./graph/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {

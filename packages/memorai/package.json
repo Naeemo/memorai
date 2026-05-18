@@ -36,6 +36,10 @@
       "types": "./dist/vector/index.d.ts",
       "import": "./dist/vector/index.js"
     },
+    "./graph": {
+      "types": "./dist/graph/index.d.ts",
+      "import": "./dist/graph/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {

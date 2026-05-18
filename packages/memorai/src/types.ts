@@ -5,6 +5,7 @@
 //   Tier 3 = indexes (storage-adapter internal, rebuildable)
 // See ARCHITECTURE.md §1.4 for the full design rationale.
 
+import type { EntityGraph } from "./graph/types.js";
 import type { VectorIndex } from "./vector/types.js";
 
 // ─────────────────────────────────────────────────────────────
@@ -734,6 +735,14 @@ export interface MemoraiConfig {
    * is fine up to ~10⁵ events.
    */
   eventVectorIndex?: VectorIndex;
+  /**
+   * Optional knowledge-graph store. When set, Memorai populates it with
+   * the (subject, predicate, object) triples extracted by the configured
+   * extractor (LLMExtractor emits triples by default), and the retrieval
+   * pipeline gains a graph-aware pathway that surfaces neighbors of
+   * entities mentioned in the query.
+   */
+  entityGraph?: EntityGraph;
   evolution?: Partial<EvolutionConfig>;
   agentProfile?: AgentMemoryProfile;
   /** Default actor when Event.actor is omitted. */
