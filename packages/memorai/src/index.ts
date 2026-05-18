@@ -808,6 +808,76 @@ export class Memorai {
     return this.eventStore.listEvents(opts);
   }
 
+  /**
+   * Materialized user-profile view — returns currently-valid `state` events
+   * for the given tenant, optionally filtered to a specific participant
+   * (the "who" the assertion is about) and/or topic.
+   *
+   * This is the canonical "what does the agent currently believe about X?"
+   * surface. Use it for:
+   *   - rendering a profile panel ("Alice prefers tea")
+   *   - preamble injection ("recall everything we know about Bob then
+   *     answer the question")
+   *   - cross-conversation continuity (carry state forward to a new chat)
+   *
+   * State events that have been superseded (`invalidatedAt` set) are
+   * excluded — call `listEvents` directly to see the full revision history.
+   */
+  async getUserFacts(
+    opts: {
+      userId?: string;
+      participant?: string;
+      topic?: string;
+      limit?: number;
+    } = {},
+  ): Promise<MemoryEvent[]> {
+    let candidates: MemoryEvent[];
+    if (opts.participant) {
+      candidates = await this.eventStore.queryEventsByParticipant(opts.participant, {
+        userId: opts.userId,
+        kind: "state",
+        excludeInvalidated: true,
+        limit: opts.limit,
+      });
+    } else if (opts.topic) {
+      candidates = await this.eventStore.queryEventsByTopic(opts.topic, {
+        userId: opts.userId,
+        kind: "state",
+        excludeInvalidated: true,
+        limit: opts.limit,
+      });
+    } else {
+      candidates = await this.eventStore.listEvents({
+        userId: opts.userId,
+        kind: "state",
+        excludeInvalidated: true,
+        limit: opts.limit,
+      });
+    }
+
+    // When both participant and topic are supplied, AND them after the index lookup.
+    if (opts.participant && opts.topic) {
+      const topicLower = opts.topic.toLowerCase();
+      candidates = candidates.filter((e) => e.topics.some((t) => t.toLowerCase() === topicLower));
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Topic vocabulary the profile knows for a given (userId, participant?).
+   * Useful for surfacing "we have facts about: preferences, role, location"
+   * to a downstream UI.
+   */
+  async listUserTopics(opts: { userId?: string; participant?: string } = {}): Promise<string[]> {
+    const facts = await this.getUserFacts(opts);
+    const topics = new Set<string>();
+    for (const f of facts) {
+      for (const t of f.topics) topics.add(t.toLowerCase());
+    }
+    return [...topics].sort();
+  }
+
   private async identifyBatch(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
     if (!this.identifier) return [];
 
