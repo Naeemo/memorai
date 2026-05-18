@@ -5,6 +5,8 @@
 //   Tier 3 = indexes (storage-adapter internal, rebuildable)
 // See ARCHITECTURE.md §1.4 for the full design rationale.
 
+import type { VectorIndex } from "./vector/types.js";
+
 // ─────────────────────────────────────────────────────────────
 // Shared shapes
 // ─────────────────────────────────────────────────────────────
@@ -717,6 +719,21 @@ export interface MemoraiConfig {
    * that uses MemoraiConfig.llm.
    */
   reranker?: RerankerService;
+  /**
+   * Optional vector index for node embeddings. When set, the semantic
+   * retrieval pathway uses it instead of `storage.listAll() + cosine`,
+   * giving sub-linear query time and scale beyond ~10⁴ nodes.
+   *
+   * Memorai populates the index on every write/update/delete. To bootstrap
+   * an index over existing data, call `Memorai.rebuildVectorIndex()`.
+   */
+  vectorIndex?: VectorIndex;
+  /**
+   * Optional vector index for MemoryEvent embeddings. When omitted, the
+   * default `InMemoryEventStore` falls back to linear-scan cosine, which
+   * is fine up to ~10⁵ events.
+   */
+  eventVectorIndex?: VectorIndex;
   evolution?: Partial<EvolutionConfig>;
   agentProfile?: AgentMemoryProfile;
   /** Default actor when Event.actor is omitted. */

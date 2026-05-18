@@ -9,6 +9,7 @@ export default defineConfig({
       index: "src/index.ts",
       "storage/index": "src/storage/index.ts",
       "embeddings/index": "src/embeddings/index.ts",
+      "vector/index": "src/vector/index.ts",
     },
     dts: true,
     platform: "neutral",

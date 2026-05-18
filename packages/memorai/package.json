@@ -32,6 +32,10 @@
       "types": "./dist/embeddings/index.d.ts",
       "import": "./dist/embeddings/index.js"
     },
+    "./vector": {
+      "types": "./dist/vector/index.d.ts",
+      "import": "./dist/vector/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {

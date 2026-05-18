@@ -81,7 +81,7 @@ export function parseScores(raw: string, count: number): number[] {
     // (e.g. "[0]", "(0)", "0:", "0.", "0)") so we don't read the rank
     // itself as the score. After stripping, the first number remaining
     // is the score.
-    const cleaned = line.replace(/^\s*[(\[]?\d+[)\].:\-]\s*/, "");
+    const cleaned = line.replace(/^\s*[([]?\d+[)\].:-]\s*/, "");
     const m = cleaned.match(/(-?\d+(?:\.\d+)?)/);
     if (m) {
       const n = Number.parseFloat(m[1]);

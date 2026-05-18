@@ -8,6 +8,7 @@ import type {
   TraversalOrder,
   TraversalStats,
 } from "./types.js";
+import type { VectorFilter, VectorIndex } from "./vector/types.js";
 
 /** Reciprocal-Rank-Fusion constant. Standard literature value. */
 const RRF_K = 60;
@@ -34,7 +35,10 @@ type Annotated = MemoryNode & {
  * was returned.
  */
 export class RetrievalEngine {
-  constructor(private readonly storage: StorageAdapter) {}
+  constructor(
+    private readonly storage: StorageAdapter,
+    private readonly vectorIndex: VectorIndex | undefined = undefined,
+  ) {}
 
   async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
     const startTime = performance.now();
@@ -84,7 +88,9 @@ export class RetrievalEngine {
   private countActivePathways(query: RetrievalQuery, traversal: TraversalOrder): number {
     let n = 0;
     if (query.embedding) n += 1;
-    if (query.text) n += 2; // bm25 + tag
+    if (query.text) {
+      n += 2; // bm25 + tag
+    }
     if (query.timeRange) n += 1;
     if (query.strategy === "exploratory" || traversal === "salience") n += 1;
     if (query.userId) n += 1;
@@ -189,10 +195,30 @@ export class RetrievalEngine {
   private async semanticPathway(
     query: RetrievalQuery,
   ): Promise<Array<{ id: string; score: number }>> {
-    const all = await this.storage.listAll();
-    const candidates = all.filter((n) => n.annotations.embedding);
     const k = query.maxCandidates ?? PATHWAY_DEPTH;
     const minThreshold = 0.3;
+
+    // Fast path: dedicated vector index.
+    if (this.vectorIndex) {
+      const filter: VectorFilter = {};
+      if (query.userId !== undefined) filter.userId = query.userId;
+      if (query.actor !== undefined) filter.actor = query.actor;
+      if (query.target !== undefined) filter.target = query.target;
+      if (query.level !== undefined) filter.level = query.level;
+      if (query.timeRange) {
+        filter.timestamp = { range: query.timeRange };
+      }
+      const hits = await this.vectorIndex.query(query.embedding!, {
+        topK: k,
+        minScore: minThreshold,
+        filter: Object.keys(filter).length > 0 ? filter : undefined,
+      });
+      return hits.map((h) => ({ id: h.id, score: h.score }));
+    }
+
+    // Fallback: linear scan over all nodes.
+    const all = await this.storage.listAll();
+    const candidates = all.filter((n) => n.annotations.embedding);
     const heap: Array<{ node: MemoryNode; score: number }> = [];
 
     for (const n of candidates) {

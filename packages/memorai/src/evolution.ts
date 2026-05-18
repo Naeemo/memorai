@@ -54,7 +54,7 @@ export class EvolutionEngine {
       ...partialConfig,
       autoTriggers: {
         ...DEFAULT_CONFIG.autoTriggers,
-        ...(partialConfig?.autoTriggers ?? {}),
+        ...partialConfig?.autoTriggers,
       },
     };
   }

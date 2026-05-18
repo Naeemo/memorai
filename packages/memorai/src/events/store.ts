@@ -1,6 +1,7 @@
 import { BM25Index } from "../bm25.js";
 import { cosineSimilarity } from "../utils.js";
 import type { EventQueryOpts, EventStore, MemoryEvent, MemoryEventKind } from "../types.js";
+import type { VectorFilter, VectorIndex } from "../vector/types.js";
 
 /**
  * Default in-memory MemoryEvent store. Suitable for tests, single-process
@@ -25,6 +26,11 @@ export class InMemoryEventStore implements EventStore {
   private byTopic = new Map<string, Set<string>>();
   private byKind = new Map<MemoryEventKind, Set<string>>();
   private bm25 = new BM25Index();
+  private readonly vectorIndex?: VectorIndex;
+
+  constructor(opts: { vectorIndex?: VectorIndex } = {}) {
+    this.vectorIndex = opts.vectorIndex;
+  }
 
   async putEvent(event: MemoryEvent): Promise<void> {
     const existing = this.byId.get(event.id);
@@ -33,6 +39,18 @@ export class InMemoryEventStore implements EventStore {
     }
     this.byId.set(event.id, event);
     this.index(event);
+    if (this.vectorIndex && event.embedding) {
+      await this.vectorIndex.upsert({
+        id: event.id,
+        embedding: event.embedding,
+        metadata: {
+          userId: event.userId ?? null,
+          kind: event.kind,
+          occurredAt: event.occurredAt,
+          invalidated: event.invalidatedAt !== undefined,
+        },
+      });
+    }
   }
 
   async getEvent(id: string): Promise<MemoryEvent | null> {
@@ -44,6 +62,7 @@ export class InMemoryEventStore implements EventStore {
     if (!ev) return;
     this.unindex(ev);
     this.byId.delete(id);
+    if (this.vectorIndex) await this.vectorIndex.delete(id);
   }
 
   async batchPutEvents(events: MemoryEvent[]): Promise<void> {
@@ -57,6 +76,28 @@ export class InMemoryEventStore implements EventStore {
     opts: EventQueryOpts & { topK?: number } = {},
   ): Promise<MemoryEvent[]> {
     const topK = opts.topK ?? opts.limit ?? 30;
+
+    if (this.vectorIndex) {
+      const filter: VectorFilter = {};
+      if (opts.userId !== undefined) filter.userId = opts.userId;
+      if (opts.kind !== undefined) filter.kind = opts.kind;
+      if (opts.excludeInvalidated) filter.invalidated = false;
+      const hits = await this.vectorIndex.query(embedding, {
+        topK: topK * 2,
+        minScore: 0,
+        filter: Object.keys(filter).length > 0 ? filter : undefined,
+      });
+      const events: MemoryEvent[] = [];
+      for (const h of hits) {
+        const ev = this.byId.get(h.id);
+        if (!ev) continue;
+        if (!this.passesFilter(ev, opts)) continue;
+        events.push(ev);
+        if (events.length >= topK) break;
+      }
+      return events;
+    }
+
     const scored: Array<{ ev: MemoryEvent; score: number }> = [];
     for (const ev of this.byId.values()) {
       if (!this.passesFilter(ev, opts)) continue;
@@ -127,6 +168,7 @@ export class InMemoryEventStore implements EventStore {
     this.byTopic.clear();
     this.byKind.clear();
     this.bm25 = new BM25Index();
+    if (this.vectorIndex) await this.vectorIndex.clear();
   }
 
   // ─── helpers ───

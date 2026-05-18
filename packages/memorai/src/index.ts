@@ -33,6 +33,7 @@ import type {
   WriteOptions,
   WritePayload,
 } from "./types.js";
+import type { VectorIndex } from "./vector/types.js";
 
 const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   agentId: "default",
@@ -78,6 +79,7 @@ export class Memorai {
   private readonly extractor: Extractor;
   private readonly eventStore: EventStore;
   private readonly identifier?: EventIdentifier;
+  private readonly vectorIndex?: VectorIndex;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
   private writesSinceEvolve = 0;
@@ -87,11 +89,12 @@ export class Memorai {
   private evolveInFlight?: Promise<void>;
 
   constructor(private readonly config: MemoraiConfig) {
-    this.retrieval = new RetrievalEngine(config.storage);
+    this.vectorIndex = config.vectorIndex;
+    this.retrieval = new RetrievalEngine(config.storage, this.vectorIndex);
     this.evolution = new EvolutionEngine(config.storage, config.evolution);
     this.agentProfile = config.agentProfile ?? DEFAULT_AGENT_PROFILE;
     this.evolveMode = config.evolution?.mode ?? "auto";
-    this.triggers = { ...DEFAULT_TRIGGERS, ...(config.evolution?.autoTriggers ?? {}) };
+    this.triggers = { ...DEFAULT_TRIGGERS, ...config.evolution?.autoTriggers };
 
     if (config.extractor) {
       this.extractor = config.extractor;
@@ -101,7 +104,8 @@ export class Memorai {
       this.extractor = new LightExtractor();
     }
 
-    this.eventStore = config.events ?? new InMemoryEventStore();
+    this.eventStore =
+      config.events ?? new InMemoryEventStore({ vectorIndex: config.eventVectorIndex });
     if (config.identifier) {
       this.identifier = config.identifier;
     } else if (config.llm) {
@@ -401,7 +405,7 @@ export class Memorai {
         memory: m,
         score: inc,
         pathways: new Set(m.provenance?.pathways ?? []),
-        pathwayScores: { ...(m.provenance?.pathwayScores ?? {}) },
+        pathwayScores: { ...m.provenance?.pathwayScores },
       });
       nodeRank += 1;
     }
@@ -420,7 +424,7 @@ export class Memorai {
           memory: m,
           score: inc,
           pathways: new Set(m.provenance?.pathways ?? []),
-          pathwayScores: { ...(m.provenance?.pathwayScores ?? {}) },
+          pathwayScores: { ...m.provenance?.pathwayScores },
         });
       }
     }
@@ -582,7 +586,9 @@ export class Memorai {
     };
 
     await this.config.storage.put(segment);
+    await this.upsertNodeVector(segment);
     await this.evolution.processSegment(segment);
+    await this.resyncVectorChainFromSegment(segment.id);
     this.onAfterWrite();
 
     return segment;
@@ -609,7 +615,7 @@ export class Memorai {
         const embeddings = await embeddingService.embedBatch!(toEmbed.map((e) => e.text));
         for (const [i, e] of toEmbed.entries()) {
           const p = payloads[e.index];
-          p.annotations = { ...(p.annotations ?? {}) };
+          p.annotations = { ...p.annotations };
           p.annotations.embedding = embeddings[i];
         }
       }
@@ -702,6 +708,9 @@ export class Memorai {
     const p = (async () => {
       try {
         await this.evolution.evolve();
+        if (this.vectorIndex) {
+          await this.resyncHigherLevelNodes();
+        }
         if (this.identifier) {
           try {
             await this.identifyRecent();
@@ -965,6 +974,9 @@ export class Memorai {
     }
 
     await this.config.storage.delete(id);
+    if (this.vectorIndex) {
+      await this.vectorIndex.delete(id);
+    }
   }
 
   /** Update a memory node's annotations / linkage / metadata. Tier 1 `raw` is never modified through this surface — use `reAnnotate()` to regenerate Tier 2 from raw. */
@@ -1064,6 +1076,7 @@ export class Memorai {
         }
 
         await this.config.storage.put(node);
+        await this.upsertNodeVector(node);
         result.reannotated += 1;
       } catch (err) {
         result.errors.push({
@@ -1129,7 +1142,7 @@ export class Memorai {
       actor: opts.actor,
       target: opts.target,
     };
-    return { ...base, ...(opts.overrideQuery ?? {}) };
+    return { ...base, ...opts.overrideQuery };
   }
 
   private toRecallResult(result: RetrievalResult): RecallResult {
@@ -1218,7 +1231,7 @@ export class Memorai {
       if (!m) continue;
       const pathways = m.provenance?.pathways ? [...m.provenance.pathways, "rerank"] : ["rerank"];
       const pathwayScores = {
-        ...(m.provenance?.pathwayScores ?? {}),
+        ...m.provenance?.pathwayScores,
         rerank: r.score,
       };
       memories.push({
@@ -1448,6 +1461,90 @@ export class Memorai {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // Vector index — population + maintenance
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Rebuild the configured vector index from current storage. Useful after
+   * attaching a vector index to an existing store, or after swapping
+   * embedding models with `reAnnotate()`.
+   */
+  async rebuildVectorIndex(): Promise<{ indexed: number }> {
+    if (!this.vectorIndex) {
+      throw new Error("Memorai.rebuildVectorIndex: no vectorIndex configured");
+    }
+    await this.vectorIndex.clear();
+    const all = await this.config.storage.listAll();
+    const records = all
+      .filter((n) => n.annotations.embedding && n.annotations.embedding.length > 0)
+      .map((n) => this.nodeToVectorRecord(n));
+    if (records.length > 0) {
+      await this.vectorIndex.upsertBatch(records);
+    }
+    return { indexed: records.length };
+  }
+
+  private async upsertNodeVector(node: MemoryNode): Promise<void> {
+    if (!this.vectorIndex) return;
+    if (!node.annotations.embedding || node.annotations.embedding.length === 0) return;
+    await this.vectorIndex.upsert(this.nodeToVectorRecord(node));
+  }
+
+  private nodeToVectorRecord(node: MemoryNode) {
+    return {
+      id: node.id,
+      embedding: node.annotations.embedding!,
+      metadata: {
+        userId: node.userId ?? null,
+        actor: node.actor ?? null,
+        target: node.target ?? null,
+        level: node.level,
+        timestamp: node.timestamp,
+        salience: node.annotations.salienceScore,
+        agentRole: node.meta.agentRole,
+        parentId: node.parentId ?? null,
+      },
+    };
+  }
+
+  /**
+   * After L1 evolution touched a segment, the segment itself may have
+   * gained a parentId and the parent atomic_action's embedding may have
+   * shifted. Re-upsert both so the vector index stays in sync.
+   */
+  private async resyncVectorChainFromSegment(segmentId: string): Promise<void> {
+    if (!this.vectorIndex) return;
+    const segment = await this.config.storage.get(segmentId);
+    if (!segment) return;
+    await this.upsertNodeVector(segment);
+    if (segment.parentId) {
+      const parent = await this.config.storage.get(segment.parentId);
+      if (parent) await this.upsertNodeVector(parent);
+    }
+  }
+
+  /**
+   * After L2 evolution, sweep atomic_action + episode nodes and re-upsert
+   * their (possibly merged) embeddings. Bounded — these levels are far
+   * smaller than the segment population, and the upsert is idempotent.
+   */
+  private async resyncHigherLevelNodes(): Promise<void> {
+    if (!this.vectorIndex) return;
+    const all = await this.config.storage.listAll();
+    const records = all
+      .filter(
+        (n) =>
+          (n.level === "atomic_action" || n.level === "episode") &&
+          n.annotations.embedding &&
+          n.annotations.embedding.length > 0,
+      )
+      .map((n) => this.nodeToVectorRecord(n));
+    if (records.length > 0) {
+      await this.vectorIndex.upsertBatch(records);
+    }
+  }
+
   private async compressMedia(
     media: MediaPayload,
     compression: CompressionService,
@@ -1542,6 +1639,19 @@ export {
   extractTags,
   scoreSalience,
 } from "./extraction/index.js";
+export {
+  BruteForceVectorIndex,
+  matchFilter,
+  matchFilterClause,
+  type VectorFilter,
+  type VectorFilterClause,
+  type VectorIndex,
+  type VectorMetadata,
+  type VectorMetadataValue,
+  type VectorQueryOptions,
+  type VectorQueryResult,
+  type VectorRecord,
+} from "./vector/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {
