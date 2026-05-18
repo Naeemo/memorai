@@ -412,7 +412,12 @@ export interface EvolutionConfig {
 // Retrieval (internal — wrapped by recall())
 // ─────────────────────────────────────────────────────────────
 
-export type RetrievalStrategy = "factual" | "temporal" | "inferential" | "exploratory";
+export type RetrievalStrategy =
+  | "factual"
+  | "temporal"
+  | "inferential"
+  | "exploratory"
+  | "procedural";
 
 export type TraversalOrder = "forward" | "reverse" | "salience";
 
@@ -481,6 +486,36 @@ export type EventContent =
   | { kind: "video"; video: string; frames?: ImageData[]; transcript?: string }
   | { kind: "file"; mime: string; ref: string; text?: string }
   | { kind: "observation"; text: string }
+  | {
+      kind: "tool_call";
+      /** Tool/function name invoked. */
+      tool: string;
+      /** Arguments passed (serialized into searchable text). */
+      args?: Record<string, unknown> | string;
+      /** Tool result (serialized into searchable text). */
+      result?: unknown;
+      /** Did the call succeed? */
+      success: boolean;
+      /** Wall-clock duration of the call in ms. */
+      durationMs?: number;
+      /** Short error class (e.g., "Timeout", "InvalidArgs") when `success` is false. */
+      errorClass?: string;
+      /** Free-form note about the call. */
+      note?: string;
+    }
+  | {
+      kind: "plan_step";
+      /** Natural-language description of the step. */
+      step: string;
+      /** Optional tool the step intends to call. */
+      tool?: string;
+      /** Prior step ids this depends on. */
+      dependsOn?: string[];
+      /** Lifecycle status. */
+      status?: "pending" | "executing" | "completed" | "failed" | "skipped";
+      /** Final outcome / observation tied to the step (when status finalized). */
+      outcome?: string;
+    }
   | { kind: "custom"; text: string; data?: Record<string, unknown> };
 
 export interface Event {

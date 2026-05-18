@@ -94,12 +94,52 @@ export function projectContent(content: EventContent): {
       };
     case "observation":
       return { text: content.text, modality: ["text"] };
+    case "tool_call": {
+      const argText = content.args
+        ? typeof content.args === "string"
+          ? content.args
+          : safeJsonStringify(content.args)
+        : "";
+      const resultText = content.result !== undefined ? safeJsonStringify(content.result) : "";
+      const status = content.success ? "ok" : "error";
+      const errSuffix = content.errorClass ? ` error=${content.errorClass}` : "";
+      const noteSuffix = content.note ? ` note=${content.note}` : "";
+      const text =
+        `tool=${content.tool} status=${status}${errSuffix}` +
+        (argText ? ` args=${argText}` : "") +
+        (resultText ? ` result=${resultText}` : "") +
+        noteSuffix;
+      return {
+        text,
+        modality: ["text"],
+        descriptionText: noteSuffix ? content.note : undefined,
+      };
+    }
+    case "plan_step": {
+      const status = content.status ?? "pending";
+      const toolSuffix = content.tool ? ` tool=${content.tool}` : "";
+      const depsSuffix =
+        content.dependsOn && content.dependsOn.length > 0
+          ? ` deps=${content.dependsOn.join(",")}`
+          : "";
+      const outcomeSuffix = content.outcome ? ` outcome=${content.outcome}` : "";
+      const text = `plan_step status=${status}${toolSuffix}${depsSuffix} ${content.step}${outcomeSuffix}`;
+      return { text, modality: ["text"] };
+    }
     case "custom":
       return {
         text: content.text,
-        descriptionText: content.data ? JSON.stringify(content.data) : undefined,
+        descriptionText: content.data ? safeJsonStringify(content.data) : undefined,
         modality: ["text"],
       };
+  }
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
 
@@ -120,6 +160,10 @@ export function rawIndexableText(raw: RawContent): string {
       return raw.content.transcript ?? "[video]";
     case "file":
       return `[file ${raw.content.mime}]`;
+    case "tool_call":
+      return `[tool_call ${raw.content.tool}]`;
+    case "plan_step":
+      return `[plan_step ${raw.content.step}]`;
     default:
       return "";
   }

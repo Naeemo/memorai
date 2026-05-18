@@ -399,6 +399,24 @@ export class RetrievalEngine {
           return { ...n, _score: n._score * boost };
         });
         break;
+      case "procedural":
+        results = results.map((n) => {
+          let boost = 1;
+          const kind = n.raw.content.kind;
+          if (kind === "tool_call") {
+            boost *= 1.5;
+            // Failed calls are higher-signal for "what went wrong" queries.
+            if (n.raw.content.success === false) boost *= 1.2;
+          } else if (kind === "plan_step") {
+            boost *= 1.2;
+          }
+          const ageHours = (Date.now() - n.timestamp) / 3600000;
+          // Procedural memory decays faster than factual — recent attempts
+          // are usually what matters. Half-life ~3 days.
+          boost *= Math.max(0.4, 1 - ageHours / 72);
+          return { ...n, _score: n._score * boost };
+        });
+        break;
     }
 
     return results;
@@ -450,6 +468,7 @@ export class RetrievalEngine {
         temporal: 0.04,
         inferential: 0.03,
         exploratory: 0.02,
+        procedural: 0.04,
       };
       const threshold = strategyStopThreshold[query.strategy];
 
