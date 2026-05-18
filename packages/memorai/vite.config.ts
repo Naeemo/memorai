@@ -11,6 +11,7 @@ export default defineConfig({
       "embeddings/index": "src/embeddings/index.ts",
       "vector/index": "src/vector/index.ts",
       "graph/index": "src/graph/index.ts",
+      "temporal/index": "src/temporal/index.ts",
     },
     dts: true,
     platform: "neutral",

@@ -3,6 +3,7 @@ import { RetrievalEngine } from "./retrieval.js";
 import { generateId } from "./utils.js";
 import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction/index.js";
 import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
+import { resolveTimeExpression } from "./temporal/index.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -204,11 +205,19 @@ export class Memorai {
     // to reorder. Cap at 3× topK to keep the LLM rerank call bounded.
     const preRerankTopK = this.config.reranker ? Math.min(topK * 3, 30) : topK;
 
-    const eventsEnabled = opts.includeEvents !== false && this.identifier !== undefined;
+    // Auto-resolve temporal expressions in the question when the caller
+    // didn't provide an explicit `timeRange`. "What did Alice tell me
+    // yesterday?" gains a yesterday-bounded `timeRange`, dropping the
+    // temporal pathway from "weakest LoCoMo category" to first-class.
+    const effectiveOpts = opts.timeRange ? opts : this.applyTemporalResolution(question, opts);
+
+    const eventsEnabled = effectiveOpts.includeEvents !== false && this.identifier !== undefined;
 
     const [nodeResult, eventMemories] = await Promise.all([
-      this.recallNodes(question, opts, preRerankTopK),
-      eventsEnabled ? this.recallEvents(question, opts, preRerankTopK) : Promise.resolve([]),
+      this.recallNodes(question, effectiveOpts, preRerankTopK),
+      eventsEnabled
+        ? this.recallEvents(question, effectiveOpts, preRerankTopK)
+        : Promise.resolve([]),
     ]);
 
     const preRerank = this.mergeNodeAndEventResults(nodeResult, eventMemories, preRerankTopK);
@@ -222,6 +231,21 @@ export class Memorai {
     }
 
     return this.applyReranker(question, preRerank, topK);
+  }
+
+  /**
+   * Auto-detect time expressions in the question and populate `opts.timeRange`.
+   * No-op when the resolver finds nothing — the original `opts` flows
+   * unchanged so retrieval can fall back to a global search.
+   */
+  private applyTemporalResolution(question: string, opts: RecallOptions): RecallOptions {
+    const resolved = resolveTimeExpression(question);
+    if (!resolved) return opts;
+    return {
+      ...opts,
+      timeRange: { start: resolved.start, end: resolved.end },
+      strategy: opts.strategy ?? "temporal",
+    };
   }
 
   private async recallNodes(
@@ -1731,6 +1755,7 @@ export {
   type GraphPath,
   type UpsertEdgeInput,
 } from "./graph/index.js";
+export { resolveTimeExpression, type ResolvedTimeRange } from "./temporal/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {

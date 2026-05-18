@@ -40,6 +40,10 @@
       "types": "./dist/graph/index.d.ts",
       "import": "./dist/graph/index.js"
     },
+    "./temporal": {
+      "types": "./dist/temporal/index.d.ts",
+      "import": "./dist/temporal/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
