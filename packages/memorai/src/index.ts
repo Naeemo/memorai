@@ -2080,8 +2080,12 @@ export {
 } from "./extraction/index.js";
 export {
   BruteForceVectorIndex,
+  HnswVectorIndex,
+  loadHnswlib,
   matchFilter,
   matchFilterClause,
+  type HnswlibIndex,
+  type HnswVectorIndexOptions,
   type VectorFilter,
   type VectorFilterClause,
   type VectorIndex,

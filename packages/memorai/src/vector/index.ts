@@ -1,5 +1,11 @@
 export { BruteForceVectorIndex } from "./brute-force.js";
 export {
+  HnswVectorIndex,
+  loadHnswlib,
+  type HnswlibIndex,
+  type HnswVectorIndexOptions,
+} from "./hnsw.js";
+export {
   matchFilter,
   matchFilterClause,
   type VectorFilter,

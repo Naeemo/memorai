@@ -1,10 +1,12 @@
 import {
   BruteForceVectorIndex,
+  HnswVectorIndex,
   matchFilter,
   matchFilterClause,
   Memorai,
   MemoryAdapter,
   type EmbeddingService,
+  type HnswlibIndex,
 } from "../src/index.js";
 
 class MockEmbeddingService implements EmbeddingService {
@@ -302,5 +304,192 @@ describe("Memorai with VectorIndex", () => {
     expect(hasAlpha(r2)).toBe(true);
     await m1.close();
     await m2.close();
+  });
+});
+
+// ─── HnswVectorIndex — mock-backed ───
+
+/**
+ * In-memory mock of the `HnswlibIndex` surface that exact-cosine ranks
+ * stored points. Lets us exercise `HnswVectorIndex` end-to-end without
+ * the native binding.
+ */
+class MockHnswlib implements HnswlibIndex {
+  private points = new Map<number, number[]>();
+  private deletedLabels = new Set<number>();
+  private maxElements = 0;
+  initIndex(maxElements: number): void {
+    this.maxElements = maxElements;
+  }
+  resizeIndex(newMaxElements: number): void {
+    this.maxElements = newMaxElements;
+  }
+  addPoint(point: number[], label: number): void {
+    this.points.set(label, point.slice());
+    this.deletedLabels.delete(label);
+  }
+  markDelete(label: number): void {
+    this.deletedLabels.add(label);
+  }
+  searchKnn(
+    query: number[],
+    k: number,
+    filter?: (label: number) => boolean,
+  ): { neighbors: number[]; distances: number[] } {
+    const qn = norm(query);
+    const scored: { label: number; distance: number }[] = [];
+    for (const [label, vec] of this.points) {
+      if (this.deletedLabels.has(label)) continue;
+      if (filter && !filter(label)) continue;
+      const sim = dot(query, vec) / (qn * norm(vec));
+      scored.push({ label, distance: 1 - sim });
+    }
+    scored.sort((a, b) => a.distance - b.distance);
+    const top = scored.slice(0, k);
+    return {
+      neighbors: top.map((s) => s.label),
+      distances: top.map((s) => s.distance),
+    };
+  }
+  getCurrentCount(): number {
+    return this.points.size - this.deletedLabels.size;
+  }
+  getMaxElements(): number {
+    return this.maxElements;
+  }
+  setEf(_ef: number): void {
+    // no-op in mock
+  }
+}
+
+function dot(a: number[], b: number[]): number {
+  let s = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) s += a[i] * b[i];
+  return s;
+}
+function norm(v: number[]): number {
+  let s = 0;
+  for (const x of v) s += x * x;
+  return Math.sqrt(s) || 1;
+}
+
+describe("HnswVectorIndex (mock HNSW)", () => {
+  test("upsert + query returns top-K by cosine", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0] },
+      { id: "b", embedding: [0.9, 0.1, 0, 0] },
+      { id: "c", embedding: [0, 1, 0, 0] },
+    ]);
+    expect(await idx.size()).toBe(3);
+    const hits = await idx.query([1, 0, 0, 0], { topK: 2, minScore: 0 });
+    expect(hits.map((h) => h.id)).toEqual(["a", "b"]);
+    expect(hits[0].score).toBeGreaterThan(hits[1].score);
+  });
+
+  test("upsert replaces existing id without growing the index", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsert({ id: "x", embedding: [1, 0, 0, 0] });
+    await idx.upsert({ id: "x", embedding: [0, 1, 0, 0] });
+    expect(await idx.size()).toBe(1);
+    const hits = await idx.query([0, 1, 0, 0], { topK: 5, minScore: 0 });
+    expect(hits[0].id).toBe("x");
+  });
+
+  test("delete tombstones the entry", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    await idx.upsert({ id: "b", embedding: [0, 1, 0, 0] });
+    await idx.delete("a");
+    expect(await idx.size()).toBe(1);
+    const hits = await idx.query([1, 0, 0, 0], { topK: 5, minScore: 0 });
+    expect(hits.map((h) => h.id)).toEqual(["b"]);
+  });
+
+  test("re-upsert after delete clears the tombstone", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    await idx.delete("a");
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    expect(await idx.size()).toBe(1);
+    const hits = await idx.query([1, 0, 0, 0], { topK: 5, minScore: 0 });
+    expect(hits.map((h) => h.id)).toEqual(["a"]);
+  });
+
+  test("filter is applied post-search over metadata", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0], metadata: { userId: "u1" } },
+      { id: "b", embedding: [0.95, 0.05, 0, 0], metadata: { userId: "u2" } },
+      { id: "c", embedding: [0.9, 0.1, 0, 0], metadata: { userId: "u1" } },
+    ]);
+    const hits = await idx.query([1, 0, 0, 0], {
+      topK: 5,
+      minScore: 0,
+      filter: { userId: "u1" },
+    });
+    expect(hits.map((h) => h.id).sort()).toEqual(["a", "c"]);
+  });
+
+  test("dim mismatch rejects mismatched-length vectors", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    await expect(idx.upsert({ id: "b", embedding: [1, 0] })).rejects.toThrow(/embedding length/i);
+  });
+
+  test("auto-resize when count would exceed maxElements", async () => {
+    const hnsw = new MockHnswlib();
+    const idx = new HnswVectorIndex(hnsw, { maxElements: 2 });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0] },
+      { id: "b", embedding: [0, 1, 0, 0] },
+      { id: "c", embedding: [0, 0, 1, 0] }, // would exceed maxElements=2
+    ]);
+    expect(await idx.size()).toBe(3);
+    expect(hnsw.getMaxElements()).toBeGreaterThanOrEqual(3);
+  });
+
+  test("clear resets the index back to uninitialized", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    await idx.clear();
+    expect(await idx.size()).toBe(0);
+    // After clear, dim is forgotten — a different-dim upsert should succeed.
+    await idx.upsert({ id: "z", embedding: [1, 2] });
+    expect(await idx.size()).toBe(1);
+  });
+
+  test("returns no results before any upsert", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    const hits = await idx.query([1, 0, 0, 0]);
+    expect(hits).toEqual([]);
+  });
+});
+
+// ─── HnswVectorIndex — real hnswlib-node (skipped if package missing) ───
+
+describe("HnswVectorIndex — real hnswlib-node", () => {
+  let realHnsw: HnswlibIndex | null = null;
+
+  beforeAll(async () => {
+    try {
+      // @ts-expect-error optional dev dependency
+      const mod = await import("hnswlib-node");
+      const HierarchicalNSW = mod.HierarchicalNSW ?? mod.default?.HierarchicalNSW;
+      realHnsw = new HierarchicalNSW("cosine", 4) as HnswlibIndex;
+    } catch {
+      realHnsw = null;
+    }
+  });
+
+  test.skipIf(!realHnsw)("round-trips against real HNSW", async () => {
+    const idx = new HnswVectorIndex(realHnsw!, { maxElements: 32 });
+    await idx.upsertBatch([
+      { id: "alpha", embedding: [1, 0, 0, 0] },
+      { id: "beta", embedding: [0, 1, 0, 0] },
+    ]);
+    const hits = await idx.query([1, 0, 0, 0], { topK: 1, minScore: 0 });
+    expect(hits.map((h) => h.id)).toEqual(["alpha"]);
   });
 });
