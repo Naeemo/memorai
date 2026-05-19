@@ -417,7 +417,7 @@ describe("HnswVectorIndex (mock HNSW)", () => {
     expect(hits.map((h) => h.id)).toEqual(["a"]);
   });
 
-  test("filter is applied post-search over metadata", async () => {
+  test("filter pushdown returns only matching metadata", async () => {
     const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
     await idx.upsertBatch([
       { id: "a", embedding: [1, 0, 0, 0], metadata: { userId: "u1" } },
@@ -430,6 +430,45 @@ describe("HnswVectorIndex (mock HNSW)", () => {
       filter: { userId: "u1" },
     });
     expect(hits.map((h) => h.id).sort()).toEqual(["a", "c"]);
+  });
+
+  test("filter pushdown returns topK when strict filter excludes top vectors", async () => {
+    // 10 vectors, only the LAST 5 match userId=u1. Without pushdown,
+    // post-filter over a 2x-topK window would under-fill (top 10 by
+    // cosine are all u2, none survive).
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 32 });
+    const vectors = Array.from({ length: 10 }, (_, i) => ({
+      id: `v${i}`,
+      // Linearly decreasing similarity to [1,0,0,0]: v0 most similar, v9 least.
+      embedding: [1 - i * 0.05, i * 0.05, 0, 0],
+      metadata: { userId: i < 5 ? "u2" : "u1" },
+    }));
+    await idx.upsertBatch(vectors);
+
+    const hits = await idx.query([1, 0, 0, 0], {
+      topK: 5,
+      minScore: 0,
+      filter: { userId: "u1" },
+    });
+    // All 5 u1 vectors should surface — post-filter would have under-filled.
+    expect(hits.length).toBe(5);
+    for (const h of hits) {
+      expect(h.metadata?.userId).toBe("u1");
+    }
+  });
+
+  test("filter pushdown returns empty when no vectors match", async () => {
+    const idx = new HnswVectorIndex(new MockHnswlib(), { maxElements: 16 });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0], metadata: { userId: "u1" } },
+      { id: "b", embedding: [0, 1, 0, 0], metadata: { userId: "u1" } },
+    ]);
+    const hits = await idx.query([1, 0, 0, 0], {
+      topK: 5,
+      minScore: 0,
+      filter: { userId: "u999" },
+    });
+    expect(hits).toEqual([]);
   });
 
   test("dim mismatch rejects mismatched-length vectors", async () => {

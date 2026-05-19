@@ -74,10 +74,11 @@ export interface HnswVectorIndexOptions {
  *     the index doubles its capacity (matching the upstream
  *     `resizeIndex` recommendation).
  *
- * Filters are applied **post-search** over a 2×-topK candidate window —
- * HNSW supports an in-search filter callback, but our metadata model is
- * richer than a single integer predicate, so we keep candidate
- * enumeration in JS land.
+ * Filters are pushed into HNSW's `searchKnn` filter callback: we
+ * precompute the matching label set from our metadata map (O(N) once
+ * per call), then HNSW walks only matching labels. This avoids the
+ * "fetch 2× topK and post-filter" workaround that under-fills strict
+ * filters (e.g. when only 5 of the top 20 vectors satisfy `userId=u1`).
  */
 export class HnswVectorIndex implements VectorIndex {
   private readonly opts: Required<HnswVectorIndexOptions>;
@@ -139,16 +140,47 @@ export class HnswVectorIndex implements VectorIndex {
     const minScore = opts.minScore ?? 0.3;
     const filter = opts.filter;
 
-    // Search a larger window so post-filtering still has enough candidates.
     const liveCount = this.labelByid.size - this.deleted.size;
     if (liveCount === 0) return [];
-    const k = Math.min(Math.max(topK * 2, topK), liveCount);
 
     let result: { neighbors: number[]; distances: number[] };
-    try {
-      result = this.hnsw.searchKnn(embedding, k);
-    } catch {
-      return [];
+
+    if (filter && Object.keys(filter).length > 0) {
+      // Filter pushdown — precompute the set of HNSW labels that satisfy
+      // the metadata filter, then pass an `(label) => acceptable.has(label)`
+      // callback to `searchKnn`. HNSW walks only matching labels and we
+      // get exactly topK results without the post-filter "fetch 2x topK,
+      // hope enough pass" workaround that under-fills strict filters.
+      //
+      // Precompute cost: O(N) over `metadataByid` per call. For 100K
+      // vectors that's microseconds — well under the search itself.
+      // High-cardinality reverse indexes (per-userId label sets) would
+      // make this O(1), worth doing if profiling flags it.
+      const acceptable = new Set<number>();
+      for (const [id, label] of this.labelByid) {
+        if (this.deleted.has(id)) continue;
+        if (matchFilter(this.metadataByid.get(id), filter)) acceptable.add(label);
+      }
+      if (acceptable.size === 0) return [];
+
+      // Request topK from the filtered population, capped at how many
+      // labels actually match (HNSW errors when k exceeds population).
+      const k = Math.min(topK, acceptable.size);
+
+      try {
+        result = this.hnsw.searchKnn(embedding, k, (label) => acceptable.has(label));
+      } catch {
+        return [];
+      }
+    } else {
+      // No filter — search the full live population. Request a small
+      // headroom over topK so minScore drops don't under-fill.
+      const k = Math.min(Math.max(topK + 5, topK), liveCount);
+      try {
+        result = this.hnsw.searchKnn(embedding, k);
+      } catch {
+        return [];
+      }
     }
 
     const out: VectorQueryResult[] = [];
@@ -157,11 +189,9 @@ export class HnswVectorIndex implements VectorIndex {
       const id = this.idByLabel.get(label);
       if (id === undefined) continue;
       if (this.deleted.has(id)) continue;
-      const metadata = this.metadataByid.get(id);
-      if (!matchFilter(metadata, filter)) continue;
       const score = 1 - result.distances[i];
       if (score < minScore) continue;
-      out.push({ id, score, metadata });
+      out.push({ id, score, metadata: this.metadataByid.get(id) });
       if (out.length >= topK) break;
     }
     return out;
