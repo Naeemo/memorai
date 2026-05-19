@@ -218,7 +218,9 @@ export class IndexedDBAdapter implements StorageAdapter {
   // ─── Helpers ───
 
   private indexableText(node: MemoryNode): string {
-    return composeIndexableText(node.raw, node.annotations);
+    return composeIndexableText(node.raw, node.annotations, {
+      coveredByEvent: node.meta.coveredByEvent,
+    });
   }
 
   private async scanIndex(name: string, range: IDBKeyRange | IDBValidKey): Promise<MemoryNode[]> {

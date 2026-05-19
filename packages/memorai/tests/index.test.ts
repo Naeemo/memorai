@@ -1020,6 +1020,61 @@ describe("Memorai event identification + recall", () => {
     );
     expect(eventPathway).toBe(false);
   });
+
+  test("identified nodes are re-indexed without their LLM summary", async () => {
+    const identifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "Alice prefers tea",
+          participants: ["alice"],
+          topics: ["preference"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: ctx.nodes.map((n) => n.id),
+        },
+      ],
+    ]);
+
+    const storage = new MemoryAdapter();
+    const memory = new Memorai({
+      storage,
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    // Summary carries a unique token absent from both raw text and the
+    // event description — a stand-in for "LLM-paraphrased noise". Before
+    // identification, BM25 sees the token via summary indexing; after
+    // identification, the summary is suppressed and the token drops.
+    const written = await memory.write({
+      raw: {
+        content: { kind: "observation", text: "alice mentioned beverages" },
+        text: "alice mentioned beverages",
+      },
+      annotations: {
+        summary: "alice prefers earlgreyzenithtoken",
+        tags: [],
+        salienceScore: 0.5,
+        modality: ["text"],
+      },
+    });
+
+    const preHits = await storage.queryByText("earlgreyzenithtoken");
+    expect(preHits.some((n) => n.id === written.id)).toBe(true);
+
+    await memory.evolve();
+
+    const updated = await memory.get(written.id);
+    expect(updated!.meta.coveredByEvent).toBe(true);
+
+    const postHits = await storage.queryByText("earlgreyzenithtoken");
+    expect(postHits.some((n) => n.id === written.id)).toBe(false);
+
+    // Raw text remains indexed — the node still serves literal queries.
+    const rawHits = await storage.queryByText("beverages");
+    expect(rawHits.some((n) => n.id === written.id)).toBe(true);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════

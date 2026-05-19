@@ -99,6 +99,18 @@ export interface MemoryMeta {
   accessCount: number;
   /** Unix ms when EventIdentifier ran on this node (undefined = not yet). */
   identifiedAt?: number;
+  /**
+   * Set to true after this node was folded into a MemoryEvent by the
+   * identifier. Storage adapters use it to suppress redundant
+   * `annotations.summary` from the indexable text — the event's
+   * canonical `description` is the source of truth for that content
+   * once identification has happened.
+   *
+   * Keeps the node's literal `raw.text`, `facts`, `description`, and
+   * `tags` in the index so it still matches paraphrased / literal
+   * queries when the event-level retrieval doesn't fire.
+   */
+  coveredByEvent?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────

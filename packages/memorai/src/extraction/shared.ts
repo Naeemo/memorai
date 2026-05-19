@@ -176,16 +176,24 @@ export function rawIndexableText(raw: RawContent): string {
  * Retrieval becomes Tier-1-and-Tier-2 simultaneously: BM25 hits literal
  * tokens from the original event AND canonicalised phrasings, and the
  * embedding sits in a semantic space that covers both.
+ *
+ * When `opts.coveredByEvent` is set, `annotations.summary` is suppressed —
+ * the node has been folded into a MemoryEvent whose canonical
+ * `description` carries that content. Indexing the LLM-paraphrased
+ * summary alongside an LLM-identified event description double-counts
+ * the same fact and hurts BM25 + embedding precision (the
+ * `--extractor llm + --identifier llm` regression).
  */
 export function composeIndexableText(
   raw: RawContent,
   annotations?: MemoryAnnotationsInput,
+  opts: { coveredByEvent?: boolean } = {},
 ): string {
   const parts: string[] = [];
   const rawText = rawIndexableText(raw);
   if (rawText) parts.push(rawText);
   if (annotations) {
-    if (annotations.summary) parts.push(annotations.summary);
+    if (annotations.summary && !opts.coveredByEvent) parts.push(annotations.summary);
     if (annotations.facts) parts.push(...annotations.facts);
     if (annotations.description) parts.push(annotations.description);
     if (annotations.tags && annotations.tags.length > 0) {

@@ -1047,15 +1047,58 @@ export class Memorai {
         }
       }
     } finally {
-      // Always mark batch nodes as identified — re-running the same batch
-      // would otherwise produce duplicate events for the ones that succeeded.
+      // Stamp identifiedAt on every node so re-running the same batch
+      // can't produce duplicate events for ones that succeeded.
+      //
+      // For nodes that ended up covered by an identified event, also
+      // mark `meta.coveredByEvent = true` and re-embed without
+      // `annotations.summary` — the event's canonical `description`
+      // is now the source of truth, and double-indexing the
+      // LLM-paraphrased summary alongside it inflated BM25 + embedding
+      // duplication (the -3.9pp `--extractor llm + --identifier llm`
+      // regression we tracked in 0.4.0's published benchmarks).
       const stamp = Date.now();
+      const coveredIds = new Set<string>();
+      for (const ev of produced) {
+        for (const sid of ev.sourceNodeIds) coveredIds.add(sid);
+      }
+
+      const toReembed: { node: MemoryNode; text: string }[] = [];
       for (const node of nodes) {
         node.meta.identifiedAt = stamp;
+        if (coveredIds.has(node.id) && !node.meta.coveredByEvent) {
+          node.meta.coveredByEvent = true;
+          const text = composeIndexableText(node.raw, node.annotations, {
+            coveredByEvent: true,
+          });
+          if (text) toReembed.push({ node, text });
+        }
+      }
+
+      // Batch-embed the covered subset when the embedding service supports
+      // it — one round trip beats N for typical batch sizes.
+      if (toReembed.length > 0) {
+        try {
+          const e = this.config.embedding;
+          const embeddings = e.embedBatch
+            ? await e.embedBatch(toReembed.map((t) => t.text))
+            : await Promise.all(toReembed.map((t) => e.embed(t.text)));
+          for (let i = 0; i < toReembed.length; i++) {
+            toReembed[i].node.annotations.embedding = embeddings[i];
+          }
+        } catch (err) {
+          console.error("[Memorai] re-embed covered nodes failed:", err);
+        }
+      }
+
+      for (const node of nodes) {
         try {
           await this.config.storage.put(node);
+          if (this.vectorIndex && coveredIds.has(node.id)) {
+            await this.upsertNodeVector(node);
+          }
         } catch (err) {
-          console.error("[Memorai] mark identifiedAt failed:", err);
+          console.error("[Memorai] persist covered/identified node failed:", err);
         }
       }
     }
@@ -1375,7 +1418,9 @@ export class Memorai {
 
         let embedding = annInput.embedding;
         if (!opts.skipEmbedding && !embedding) {
-          const indexableText = composeIndexableText(node.raw, annInput);
+          const indexableText = composeIndexableText(node.raw, annInput, {
+            coveredByEvent: node.meta.coveredByEvent,
+          });
           if (indexableText) {
             embedding = await this.config.embedding.embed(indexableText);
           }

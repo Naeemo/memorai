@@ -143,7 +143,9 @@ export class MemoryAdapter implements StorageAdapter {
   }
 
   private indexableText(node: MemoryNode): string {
-    return composeIndexableText(node.raw, node.annotations);
+    return composeIndexableText(node.raw, node.annotations, {
+      coveredByEvent: node.meta.coveredByEvent,
+    });
   }
 
   private lookup(index: Map<string, Set<string>>, key: string): MemoryNode[] {

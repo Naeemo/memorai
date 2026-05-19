@@ -297,7 +297,9 @@ export class SQLiteAdapter implements StorageAdapter {
   }
 
   private indexableText(node: MemoryNode): string {
-    return composeIndexableText(node.raw, node.annotations);
+    return composeIndexableText(node.raw, node.annotations, {
+      coveredByEvent: node.meta.coveredByEvent,
+    });
   }
 
   private parse(json: string): MemoryNode {
