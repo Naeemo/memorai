@@ -50,6 +50,26 @@ export interface MemoraiProviderOptions {
   queryExpansion?: number;
   /** Enable HyDE — generate hypothetical answer and use its embedding. */
   hyde?: boolean;
+  /**
+   * Enable sub-query decomposition — split multi-hop questions into
+   * independent sub-questions and fuse via outer RRF.
+   */
+  decompose?: boolean;
+  /**
+   * Use iterativeRecall instead of single-pass recall — repeats a
+   * `recall → LLM judge → rewrite` loop up to `iterativeMaxIterations`
+   * times (default 3) until the judge says the collected memories are
+   * sufficient.
+   */
+  iterativeRecall?: boolean;
+  /** Max iterations for iterativeRecall. Default 3. */
+  iterativeMaxIterations?: number;
+  /**
+   * Auto-detect temporal expressions in the question and populate the
+   * recall timeRange when the resolver returns a high/medium confidence
+   * match. Low-confidence matches are dropped automatically.
+   */
+  resolveTime?: boolean;
   embedder: "ollama" | "openai";
   ollamaModel?: string;
   ollamaDim?: number;
@@ -108,9 +128,16 @@ function pickReranker(opts: MemoraiProviderOptions): RerankerService | undefined
 }
 
 function pickRecallLLM(opts: MemoraiProviderOptions): LLMService | undefined {
-  // The query-expansion / HyDE path needs an LLM. Reuse the answerer
-  // model unless an explicit override is set via env.
-  if (!opts.queryExpansion && !opts.hyde) return undefined;
+  // The query-expansion / HyDE / decompose / iterativeRecall paths need
+  // an LLM. Reuse the answerer model unless an explicit override is set.
+  if (
+    !opts.queryExpansion &&
+    !opts.hyde &&
+    !opts.decompose &&
+    !opts.iterativeRecall
+  ) {
+    return undefined;
+  }
   const model = opts.answererModel ?? process.env.ANSWERER_MODEL ?? "gemma4:31b-cloud";
   return makeOllamaLLMService(model);
 }
@@ -198,13 +225,21 @@ export class MemoraiProvider implements MemoryProvider {
   }
 
   async query(question: string, opts: QueryOptions): Promise<MemoryHit[]> {
-    const result = await this.memorai.recall(question, {
+    const recallOpts = {
       userId: opts.userId,
       topK: opts.topK ?? 30,
-      strategy: "factual",
+      strategy: "factual" as const,
       queryExpansion: this.opts.queryExpansion,
       hyde: this.opts.hyde,
-    });
+      decompose: this.opts.decompose,
+      resolveTime: this.opts.resolveTime,
+    };
+    const result = this.opts.iterativeRecall
+      ? await this.memorai.iterativeRecall(question, {
+          ...recallOpts,
+          maxIterations: this.opts.iterativeMaxIterations ?? 3,
+        })
+      : await this.memorai.recall(question, recallOpts);
     return result.memories.map((m) => ({
       content: m.summary,
       timestampMs: m.at,

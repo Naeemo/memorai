@@ -21,6 +21,10 @@ interface CliOptions {
   identifierModel?: string;
   queryExpansion?: number;
   hyde: boolean;
+  decompose: boolean;
+  iterativeRecall: boolean;
+  iterativeMaxIterations?: number;
+  resolveTime: boolean;
   embedder: "ollama" | "openai";
   topK: number;
   limit?: number;
@@ -57,6 +61,9 @@ function parseArgs(argv: string[]): CliOptions {
     reranker: "none",
     identifier: "none",
     hyde: false,
+    decompose: false,
+    iterativeRecall: false,
+    resolveTime: false,
     embedder: "ollama",
     topK: 30,
     evolve: true,
@@ -104,6 +111,18 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--hyde":
         opts.hyde = true;
+        break;
+      case "--decompose":
+        opts.decompose = true;
+        break;
+      case "--iterative-recall":
+        opts.iterativeRecall = true;
+        break;
+      case "--iterative-max-iterations":
+        opts.iterativeMaxIterations = Number.parseInt(next(), 10);
+        break;
+      case "--resolve-time":
+        opts.resolveTime = true;
         break;
       case "--embedder":
         opts.embedder = next() as CliOptions["embedder"];
@@ -171,6 +190,10 @@ options:
   --identifier-model <id>                (default: extractor / answerer model)
   --query-expansion <n>                  (default: off; generate N paraphrases and outer-fuse)
   --hyde                                 (default: off; generate hypothetical answer and use its embedding)
+  --decompose                            (default: off; split multi-hop questions into independent sub-questions and outer-fuse)
+  --iterative-recall                     (default: off; loop recall → LLM judge → rewrite until sufficient or max iterations)
+  --iterative-max-iterations <n>         (default: 3; cap for --iterative-recall)
+  --resolve-time                         (default: off; auto-anchor questions with confident temporal phrases to a timeRange)
   --ingest-mode wrap|extract|paired      (legacy; superseded by --extractor)
   --embedder ollama|openai               (default: ollama)
   --top-k <n>                            (default: 30)
@@ -203,6 +226,10 @@ function makeProvider(opts: CliOptions): MemoryProvider {
     identifierModel: opts.identifierModel,
     queryExpansion: opts.queryExpansion,
     hyde: opts.hyde,
+    decompose: opts.decompose,
+    iterativeRecall: opts.iterativeRecall,
+    iterativeMaxIterations: opts.iterativeMaxIterations,
+    resolveTime: opts.resolveTime,
   });
 }
 
