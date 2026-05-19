@@ -1,6 +1,6 @@
 # Memorai
 
-> Runtime-agnostic, multimodal streaming memory for AI agents.
+> Memory for AI agents — built to remember, recall, and reflect.
 
 **Browser • Node.js • Bun • Deno**
 

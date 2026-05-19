@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Memorai
-  text: Streaming memory for AI agents
-  tagline: Three-tier storage. Multi-pathway recall. Semantic events that supersede each other. Runtime-agnostic — Browser, Node.js, Bun, Deno.
+  text: Remember. Recall. Reflect.
+  tagline: Memory for AI agents. Three-tier storage, multi-pathway recall, semantic events that supersede each other. Runtime-agnostic — Browser, Node.js, Bun, Deno.
   actions:
     - theme: brand
       text: Get Started

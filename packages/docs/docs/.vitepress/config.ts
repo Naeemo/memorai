@@ -3,7 +3,7 @@ import { defineConfig } from "vitepress";
 // Shared site-wide options. Per-locale UI strings live under `locales`.
 export default defineConfig({
   title: "Memorai",
-  description: "Runtime-agnostic, multimodal streaming memory for AI agents",
+  description: "Memory for AI agents — built to remember, recall, and reflect.",
   base: "/memorai/",
   cleanUrls: true,
   lastUpdated: true,
@@ -28,7 +28,7 @@ export default defineConfig({
       label: "English",
       lang: "en-US",
       title: "Memorai",
-      description: "Runtime-agnostic, multimodal streaming memory for AI agents",
+      description: "Memory for AI agents — built to remember, recall, and reflect.",
       themeConfig: {
         nav: [
           { text: "Guide", link: "/guide/introduction", activeMatch: "/guide/" },
@@ -98,7 +98,7 @@ export default defineConfig({
       label: "简体中文",
       lang: "zh-CN",
       title: "Memorai",
-      description: "面向 AI 代理的运行时无关、多模态流式记忆库",
+      description: "面向 AI 代理的记忆库 —— 为记忆、召回与反思而生。",
       themeConfig: {
         nav: [
           { text: "指南", link: "/zh/guide/introduction", activeMatch: "/zh/guide/" },

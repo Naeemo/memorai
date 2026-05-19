@@ -1,6 +1,6 @@
 # Memorai [![npm](https://img.shields.io/npm/v/memorai.svg)](https://npmjs.com/package/memorai)
 
-Browser local memory for AI agents
+Memory for AI agents — built to remember, recall, and reflect.
 
 ## Quick Start
 

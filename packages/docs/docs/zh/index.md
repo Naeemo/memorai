@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Memorai
-  text: Streaming memory for AI agents
-  tagline: 三层存储。多路径召回。可相互替代的语义事件。运行时无关 —— 浏览器、Node.js、Bun、Deno。
+  text: 记忆 · 召回 · 反思
+  tagline: 面向 AI 代理的记忆库。三层存储、多路径召回、可相互替代的语义事件。运行时无关 —— 浏览器、Node.js、Bun、Deno。
   actions:
     - theme: brand
       text: 快速开始

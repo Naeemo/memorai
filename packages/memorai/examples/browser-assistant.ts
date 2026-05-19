@@ -114,7 +114,7 @@ function extractDomainTags(url: string): string[] {
 async function main() {
   recordPageVisit(
     "https://github.com/Naeemo/memorai",
-    "Naeemo/memorai: Streaming memory for AI agents",
+    "Naeemo/memorai: Memory for AI agents — remember, recall, reflect",
   );
 
   recordClick("README.md", "Navigated to README in the memorai repo");
