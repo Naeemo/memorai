@@ -2,6 +2,78 @@
 
 This directory contains the canonical benchmark runs committed alongside Memorai's published versions. Day-to-day runs land in the parent `results/` directory (gitignored); only runs we want to cite go here.
 
+## 2026-05-19 — Memorai post-commit (vector + graph + procedural + temporal + profile)
+
+Five new features landed on top of 0.4.0:
+
+- **Vector index abstraction** (pluggable ANN — `BruteForceVectorIndex` ships, HNSW pending)
+- **Knowledge-graph layer** over `annotations.triples` with a new `graph` retrieval pathway
+- **Procedural memory** — `tool_call` and `plan_step` EventContent kinds + `procedural` strategy
+- **Temporal grounding** — natural-language time resolver auto-applied in `recall()`
+- **User profile view** — `getUserFacts` / `listUserTopics` materialized over valid `state` events
+
+Of these, only the **temporal resolver** is wired into the default benchmark pathway (the other four are opt-in via config). So this run measures the temporal resolver's impact on the same `wrap + identifier llm` configuration that produced the 0.4.0 headline.
+
+### Headline (LoCoMo conv-26, full 152 QAs)
+
+| Run | Accuracy | Δ vs 0.4.0 | Ingest+answer time | Notes |
+|-----|---------:|----------:|------------------:|:------|
+| 0.4.0 wrap + identifier llm | 36.84% (56/152) | — | 17.9 min | baseline |
+| **post-commit wrap + identifier llm** | **37.50%** (57/152) | **+0.66pp** | 11.7 min | + temporal resolver |
+
+The headline budges within expected LLM-judge noise (±2pp) — temporal grounding by itself doesn't move the needle on LoCoMo at this scale, but the category breakdown shows where it acted.
+
+#### Per-category breakdown
+
+| Category | 0.4.0 wrap + id | **post-commit** | Δ |
+|----------|----------------:|----------------:|---:|
+| multi_hop | 30.8% (4/13) | **38.5%** (5/13) | **+7.7pp** |
+| single_hop | 21.9% (7/32) | **28.1%** (9/32) | **+6.2pp** |
+| temporal | 8.1% (3/37) | **5.4%** (2/37) | **-2.7pp** |
+| open_domain | 60.0% (42/70) | **58.6%** (41/70) | -1.4pp |
+
+Reading: the temporal resolver helped **single_hop** and **multi_hop** (queries that mention a time but aren't *primarily* temporal — bounding the search by the mentioned date pulled the right facts to the top). It *hurt* the **temporal** category — many LoCoMo temporal questions use phrasings the resolver doesn't recognize ("after the wedding", "when she was studying"), or reference absolute dates that the heuristic-only resolver can't parse. Open-domain dipped one QA: within noise.
+
+### What this measures and what's still open
+
+This is one configuration on one conversation. The four un-wired features need their own benchmark coverage:
+
+- **Vector index**: configure `vectorIndex: new BruteForceVectorIndex()` and rebuild. Should be neutral on accuracy (exact cosine), so the test is throughput on a larger corpus — not in this round.
+- **Graph layer**: needs `--extractor llm` to produce triples + `entityGraph: new InMemoryEntityGraph()` configured. Worth a side-by-side run on LongMemEval _s (the harder split where graph paths help) in the next round.
+- **Procedural memory**: LoCoMo has no `tool_call`/`plan_step` events. Needs a synthetic tool-use benchmark.
+- **Profile view**: surfaces facts directly; needs a profile-shaped benchmark (mem0's CRAGme-style). Not in LoCoMo's question shape.
+
+### Configuration used
+
+Identical to the 0.4.0 published headline run (so the delta isolates the temporal resolver):
+
+- Memorai post-commit (HEAD of `main` at the time of the run)
+- Embedder: `nomic-embed-text` via Ollama (768-d)
+- Extractor: `WrapExtractor` (no LLM during ingest)
+- Event identifier: `LLMEventIdentifier` with `gemma4:31b-cloud`
+- Answerer: `gemma4:31b-cloud`
+- Judge: `qwen3-coder-next:cloud`
+- Top-K: 30
+- Storage: in-memory; one identification pass per session
+
+### How to reproduce
+
+```bash
+pnpm --filter @memorai/benchmarks bench:locomo \
+  --limit 1 \
+  --extractor wrap \
+  --identifier llm \
+  --identifier-model gemma4:31b-cloud \
+  --answerer-model gemma4:31b-cloud \
+  --judge-model qwen3-coder-next:cloud
+```
+
+### Caveats
+
+- Single conversation (conv-26). Cross-conv aggregate not yet run.
+- Single seed; LLM-as-judge is non-deterministic; ±2pp run-to-run noise typical.
+- The temporal resolver is intentionally heuristic + dependency-free. Phrasings it misses (relative-to-named-event, absolute-date) are next-iteration work — the `EventIdentifier`'s `occurredAt` field is the natural anchor target for those.
+
 ## 2026-05-17 — Memorai 0.4.0 (MemoryEvent layer)
 
 0.4.0 introduces the **MemoryEvent layer** (Tier 2.5): a fact-centric record extracted by an `EventIdentifier` and stored alongside raw MemoryNodes. Each event is one of three kinds — `state` (assertion that persists, can be superseded), `transition` (state change), or `happening` (anchored occurrence). Recall fuses raw-node retrieval with event-level retrieval via RRF and dedupes node hits backed by surfaced events.
