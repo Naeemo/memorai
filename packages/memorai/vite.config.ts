@@ -12,6 +12,7 @@ export default defineConfig({
       "vector/index": "src/vector/index.ts",
       "graph/index": "src/graph/index.ts",
       "temporal/index": "src/temporal/index.ts",
+      "working/index": "src/working/index.ts",
     },
     dts: true,
     platform: "neutral",

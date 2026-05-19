@@ -44,6 +44,10 @@
       "types": "./dist/temporal/index.d.ts",
       "import": "./dist/temporal/index.js"
     },
+    "./working": {
+      "types": "./dist/working/index.d.ts",
+      "import": "./dist/working/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {

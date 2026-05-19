@@ -4,6 +4,7 @@ import { generateId } from "./utils.js";
 import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction/index.js";
 import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 import { resolveTimeExpression } from "./temporal/index.js";
+import { InMemoryWorkingMemory } from "./working/index.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -36,6 +37,7 @@ import type {
 } from "./types.js";
 import type { VectorIndex } from "./vector/types.js";
 import type { EntityGraph, GraphEdge, GraphPath, UpsertEdgeInput } from "./graph/types.js";
+import type { WorkingMemory } from "./working/types.js";
 
 const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   agentId: "default",
@@ -83,6 +85,13 @@ export class Memorai {
   private readonly identifier?: EventIdentifier;
   private readonly vectorIndex?: VectorIndex;
   private readonly entityGraph?: EntityGraph;
+  /**
+   * Fast typed scratchpad for short-lived agent state — current task,
+   * pending tool args, in-flight beliefs. Defaults to an in-memory
+   * implementation; override with a persistent backend via
+   * `MemoraiConfig.workingMemory`.
+   */
+  readonly workingMemory: WorkingMemory;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
   private writesSinceEvolve = 0;
@@ -94,6 +103,7 @@ export class Memorai {
   constructor(private readonly config: MemoraiConfig) {
     this.vectorIndex = config.vectorIndex;
     this.entityGraph = config.entityGraph;
+    this.workingMemory = config.workingMemory ?? new InMemoryWorkingMemory();
     this.retrieval = new RetrievalEngine(config.storage, this.vectorIndex, this.entityGraph);
     this.evolution = new EvolutionEngine(config.storage, config.evolution);
     this.agentProfile = config.agentProfile ?? DEFAULT_AGENT_PROFILE;
@@ -1829,6 +1839,12 @@ export {
   type UpsertEdgeInput,
 } from "./graph/index.js";
 export { resolveTimeExpression, type ResolvedTimeRange } from "./temporal/index.js";
+export {
+  InMemoryWorkingMemory,
+  type SetOptions as WorkingMemorySetOptions,
+  type WorkingMemory,
+  type WorkingMemoryEntry,
+} from "./working/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {

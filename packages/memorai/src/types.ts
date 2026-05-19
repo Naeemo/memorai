@@ -7,6 +7,7 @@
 
 import type { EntityGraph } from "./graph/types.js";
 import type { VectorIndex } from "./vector/types.js";
+import type { WorkingMemory } from "./working/types.js";
 
 // ─────────────────────────────────────────────────────────────
 // Shared shapes
@@ -786,6 +787,11 @@ export interface MemoraiConfig {
    * entities mentioned in the query.
    */
   entityGraph?: EntityGraph;
+  /**
+   * Optional working-memory scratchpad. Defaults to an in-memory
+   * implementation when omitted. Always exposed as `Memorai.workingMemory`.
+   */
+  workingMemory?: WorkingMemory;
   evolution?: Partial<EvolutionConfig>;
   agentProfile?: AgentMemoryProfile;
   /** Default actor when Event.actor is omitted. */
