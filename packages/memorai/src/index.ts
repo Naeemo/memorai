@@ -895,6 +895,128 @@ export class Memorai {
     return [...topics].sort();
   }
 
+  /**
+   * Explicit belief revision — create a new `state` MemoryEvent that
+   * supersedes one or more older state events, marking them invalidated
+   * at the new event's occurredAt.
+   *
+   * Pattern: when the agent learns its prior belief about something was
+   * wrong, call this with the old event id(s) and the new canonical
+   * statement. The `reason` is stamped on the new event's `meta` so the
+   * revision chain stays auditable.
+   *
+   * Cross-tenant supersedes are refused (mirrors `persistIdentifiedEvent`
+   * behavior). Old events from a different `userId` than the new event
+   * are silently skipped — only valid supersedes land on `event.supersedes`.
+   */
+  async reviseBelief(opts: {
+    supersedes: string | readonly string[];
+    description: string;
+    participants?: string[];
+    topics?: string[];
+    occurredAt?: number;
+    userId?: string;
+    actor?: string;
+    sourceNodeIds?: string[];
+    confidence?: number;
+    reason?: string;
+  }): Promise<MemoryEvent | null> {
+    const supersedesIds = Array.isArray(opts.supersedes)
+      ? [...opts.supersedes]
+      : [opts.supersedes as string];
+    if (supersedesIds.length === 0) return null;
+
+    const now = Date.now();
+    const occurredAt = opts.occurredAt ?? now;
+
+    // Pull the first valid old event to inherit defaults from when the
+    // caller didn't supply participants/topics/userId/actor.
+    const olds: MemoryEvent[] = [];
+    for (const id of supersedesIds) {
+      const old = await this.eventStore.getEvent(id);
+      if (old) olds.push(old);
+    }
+    if (olds.length === 0) return null;
+    const inheritFrom = olds[0];
+    const inferredUserId = opts.userId ?? inheritFrom.userId;
+
+    const participants = opts.participants ?? inheritFrom.participants;
+    const topics = opts.topics ?? inheritFrom.topics;
+    const indexable = [opts.description, ...participants, ...topics].filter(Boolean).join(" — ");
+    const embedding = indexable ? await this.config.embedding.embed(indexable) : undefined;
+
+    // Compute revision depth as max(predecessor.depth ?? 0) + 1.
+    let maxDepth = 0;
+    for (const old of olds) {
+      const d = old.meta.revisionDepth ?? 0;
+      if (d > maxDepth) maxDepth = d;
+    }
+
+    const validSupersedes: string[] = [];
+    for (const old of olds) {
+      if (old.userId !== inferredUserId) continue; // cross-tenant guard
+      validSupersedes.push(old.id);
+      if (old.invalidatedAt === undefined) {
+        old.invalidatedAt = occurredAt;
+        await this.eventStore.putEvent(old);
+      }
+    }
+
+    const event: MemoryEvent = {
+      id: generateId(),
+      kind: "state",
+      description: opts.description,
+      participants,
+      topics,
+      occurredAt,
+      sourceNodeIds: opts.sourceNodeIds ?? [],
+      userId: inferredUserId,
+      actor: opts.actor ?? inheritFrom.actor,
+      embedding,
+      confidence: opts.confidence,
+      identifierVersion: this.identifier?.version ?? "manual-revise-v1",
+      meta: {
+        identifiedAt: now,
+        accessCount: 0,
+        revisionReason: opts.reason,
+        revisionDepth: maxDepth + 1,
+      },
+    };
+    if (validSupersedes.length > 0) event.supersedes = validSupersedes;
+    await this.eventStore.putEvent(event);
+    return event;
+  }
+
+  /**
+   * Walk the supersedes chain backwards from `eventId`, returning the
+   * full revision history oldest-first.
+   *
+   * Useful for surfacing "third update on Alice's preferences" or auditing
+   * how the agent's belief about X evolved over time.
+   */
+  async revisionsOf(eventId: string): Promise<MemoryEvent[]> {
+    const seen = new Set<string>();
+    const collected: MemoryEvent[] = [];
+    // Walk forward through the chain: starting at `eventId`, repeatedly
+    // collect its `supersedes` ancestors.
+    const queue: string[] = [eventId];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const ev = await this.eventStore.getEvent(id);
+      if (!ev) continue;
+      collected.push(ev);
+      if (ev.supersedes) {
+        for (const oldId of ev.supersedes) {
+          if (!seen.has(oldId)) queue.push(oldId);
+        }
+      }
+    }
+    collected.sort((a, b) => a.occurredAt - b.occurredAt);
+    return collected;
+  }
+
   private async identifyBatch(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
     if (!this.identifier) return [];
 

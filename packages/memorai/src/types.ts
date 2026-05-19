@@ -236,6 +236,18 @@ export interface MemoryEvent {
     lastAccessed?: number;
     /** How many times recall has surfaced this event. */
     accessCount: number;
+    /**
+     * Free-form caller-supplied reason this event supersedes its
+     * predecessors. Populated by `Memorai.reviseBelief()` and shown in
+     * the revision chain. Optional.
+     */
+    revisionReason?: string;
+    /**
+     * Depth in the revision chain — 0 for the original assertion, 1 for
+     * the first supersede, etc. Computed by `reviseBelief()` from the
+     * `supersedes` chain.
+     */
+    revisionDepth?: number;
   };
 }
 
