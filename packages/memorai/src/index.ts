@@ -6,6 +6,7 @@ import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 import { resolveTimeExpression } from "./temporal/index.js";
 import { InMemoryWorkingMemory } from "./working/index.js";
 import { DefaultRetentionPolicy } from "./retention/index.js";
+import { IterativeRecaller } from "./iterative.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -40,6 +41,7 @@ import type { VectorIndex } from "./vector/types.js";
 import type { EntityGraph, GraphEdge, GraphPath, UpsertEdgeInput } from "./graph/types.js";
 import type { WorkingMemory } from "./working/types.js";
 import type { ForgetOptions, ForgetResult, RetentionPolicy } from "./retention/types.js";
+import type { IterativeRecallOptions, IterativeRecallResult } from "./iterative.js";
 
 const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   agentId: "default",
@@ -248,6 +250,44 @@ export class Memorai {
     }
 
     return this.applyReranker(question, preRerank, topK);
+  }
+
+  /**
+   * Iterative / agentic recall — repeats a `recall → judge → rewrite`
+   * loop until the configured LLM judges the collected memories
+   * sufficient, no new memories surface, or `maxIterations` is reached.
+   *
+   * Use this for multi-hop questions where a single recall pass under-fills
+   * the answer ("when did X happen and what did Y say about it"). Each
+   * iteration is a full {@link recall} call — including HyDE / query
+   * expansion / reranker — so the per-iteration cost is the same as a
+   * one-shot recall, and the total cost is `iterations` multiples.
+   *
+   * Falls back to single-pass recall when no LLM is configured (no judge
+   * available). The returned `steps[]` records why we stopped — useful for
+   * debugging when iteration counts seem off.
+   */
+  async iterativeRecall(
+    question: string,
+    opts: IterativeRecallOptions = {},
+  ): Promise<IterativeRecallResult> {
+    if (!this.config.llm) {
+      const single = await this.recall(question, opts);
+      return {
+        ...single,
+        iterations: 1,
+        steps: [
+          {
+            iteration: 1,
+            query: question,
+            newMemoriesFound: single.memories.length,
+            judgment: "no_llm",
+          },
+        ],
+      };
+    }
+    const recaller = new IterativeRecaller(this.config.llm, (q, o) => this.recall(q, o));
+    return recaller.recall(question, opts);
   }
 
   /**
@@ -2107,6 +2147,13 @@ export {
   type UpsertEdgeInput,
 } from "./graph/index.js";
 export { resolveTimeExpression, type ResolvedTimeRange } from "./temporal/index.js";
+export {
+  IterativeRecaller,
+  type IterativeJudgment,
+  type IterativeRecallOptions,
+  type IterativeRecallResult,
+  type IterativeRecallStep,
+} from "./iterative.js";
 export {
   InMemoryWorkingMemory,
   type SetOptions as WorkingMemorySetOptions,
