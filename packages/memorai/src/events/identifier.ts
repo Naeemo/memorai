@@ -26,14 +26,50 @@ There are three kinds of memory events:
 - "happening":  A discrete occurrence anchored in time. Example: "There's an
                 urgent meeting Wednesday evening that Bob must attend".
 
+Output JSON array. Each element:
+{
+  "kind": "state" | "transition" | "happening",
+  "description": "<one canonical sentence resolving pronouns and dates>",
+  "participants": ["<lowercase entity>", ...],
+  "topics": ["<lowercase topic>", ...],
+  "occurredAtNodeId": "<id of the node whose timestamp the event anchors to>",
+  "sourceNodeIds": ["<id>", ...],
+  "supersedesIds": ["<existing-event-id>", ...],  // STATE only, and only if truly conflicting
+  "confidence": <number 0..1>
+}
+
 Rules:
-- Use the raw node ids exactly as given.
-- Only include "supersedesIds" if the event you're proposing IS a state
-  assertion that conflicts with or updates an existing state event of the same
-  participants + topic.
-- Be precise. Do not invent events that aren't supported by the raw turns.
-- If a turn contains no memorable event (greetings, filler, etc.), skip it.
-- canonical lowercase names for participants and topics.
+- Use the raw node ids exactly as given. Do not invent ids.
+- "description" should resolve pronouns and include explicit dates / times
+  ("yesterday" → the actual date) when the raw turns or known events anchor them.
+- "participants" and "topics" must be lowercase canonical tokens — match existing
+  events' casing so retrieval cross-references cleanly.
+- Only set "supersedesIds" when the new state strictly conflicts with the old
+  (same participants + topic, contradictory assertion). Do NOT supersede when
+  the new event merely adds detail, refines, or is from a different domain.
+- "confidence" reflects how directly the event is stated. 0.9+ for explicit
+  declarations ("I prefer X"), 0.6 for implied ("I always order X"), 0.3
+  for weakly inferred.
+- Skip filler: greetings, acknowledgments, hedges. If a turn carries no
+  memorable assertion / change / discrete happening, omit it from the output.
+
+EXAMPLE — input:
+RAW TURNS:
+- [n1] alice: i love earl grey, drink it every morning
+- [n2] alice: yeah always coffee on weekends though
+
+Output:
+[
+  {
+    "kind": "state",
+    "description": "Alice prefers Earl Grey tea on weekdays and coffee on weekends.",
+    "participants": ["alice"],
+    "topics": ["beverage preference", "morning routine"],
+    "occurredAtNodeId": "n2",
+    "sourceNodeIds": ["n1", "n2"],
+    "confidence": 0.85
+  }
+]
 `;
 
 interface RawIdentifiedEventJson {

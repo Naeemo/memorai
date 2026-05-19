@@ -109,15 +109,48 @@ Output schema (strict JSON, no prose):
   "salience": <number 0..1 — importance>,
   "description": "<optional longer expansion; omit if summary is sufficient>",
   "triples": [
-    {"subject": "<entity>", "predicate": "<relation>", "object": "<entity or value>"}
+    {"subject": "<entity>", "predicate": "<relation>", "object": "<entity or value>", "confidence": <number 0..1>}
   ]
 }
 
 Guidance:
-- "summary" should resolve pronouns and include explicit timestamps / dates if the event has them
-- "facts" should rephrase the same content in different surface forms (e.g. "Caroline researched adoption agencies" / "Adoption agencies were what Caroline looked into / etc.")
-- "triples" capture structured knowledge: (Caroline, researched, "adoption agencies"), (Caroline, attended_on, "2023-05-07")
-- omit a field if you'd be guessing`;
+- "summary" should resolve pronouns and include explicit dates / times when present in the event ("yesterday" → the actual date relative to the event's timestamp)
+- "facts" should rephrase the same content in different surface forms (e.g. "Caroline researched adoption agencies" / "Adoption agencies were what Caroline looked into")
+- "tags" should be lowercase canonical entity / topic tokens — match the casing in "triples" so retrieval can cross-reference
+- "salience" is the agent's importance estimate: 0.9 for decisions / commitments / preferences that persist; 0.5 for routine facts; 0.2 for filler / acknowledgments
+- "triples" capture structured knowledge: (caroline, researched, "adoption agencies"), (caroline, attended_on, "2023-05-07"). Include "confidence" — lower when the relation is implied rather than stated
+- omit a field if you'd be guessing; do NOT invent participants, dates, or relations not grounded in the event content
+
+EXAMPLE 1 — input:
+EVENT:
+- actor: alice
+- kind: message
+- content: i love earl grey, prefer it over coffee every morning
+
+Output:
+{
+  "summary": "Alice prefers Earl Grey tea over coffee, drinks it every morning.",
+  "facts": ["Alice's preferred beverage is Earl Grey tea", "Alice drinks Earl Grey every morning instead of coffee"],
+  "tags": ["alice", "earl grey", "tea", "coffee", "morning routine", "preference"],
+  "salience": 0.85,
+  "triples": [
+    {"subject": "alice", "predicate": "prefers", "object": "earl grey tea", "confidence": 0.95},
+    {"subject": "alice", "predicate": "drinks_routinely", "object": "earl grey", "confidence": 0.9}
+  ]
+}
+
+EXAMPLE 2 — input:
+EVENT:
+- actor: bob
+- kind: message
+- content: ok sounds good thanks!
+
+Output:
+{
+  "summary": "Bob acknowledged.",
+  "tags": ["bob", "acknowledgment"],
+  "salience": 0.15
+}`;
 
 function buildPrompt(event: Event, raw: string, ctx: ExtractContext): string {
   const recent = ctx.recent
