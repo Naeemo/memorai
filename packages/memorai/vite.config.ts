@@ -13,6 +13,7 @@ export default defineConfig({
       "graph/index": "src/graph/index.ts",
       "temporal/index": "src/temporal/index.ts",
       "working/index": "src/working/index.ts",
+      "retention/index": "src/retention/index.ts",
     },
     dts: true,
     platform: "neutral",

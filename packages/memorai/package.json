@@ -48,6 +48,10 @@
       "types": "./dist/working/index.d.ts",
       "import": "./dist/working/index.js"
     },
+    "./retention": {
+      "types": "./dist/retention/index.d.ts",
+      "import": "./dist/retention/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {

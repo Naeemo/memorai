@@ -5,6 +5,7 @@ import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction
 import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 import { resolveTimeExpression } from "./temporal/index.js";
 import { InMemoryWorkingMemory } from "./working/index.js";
+import { DefaultRetentionPolicy } from "./retention/index.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -38,6 +39,7 @@ import type {
 import type { VectorIndex } from "./vector/types.js";
 import type { EntityGraph, GraphEdge, GraphPath, UpsertEdgeInput } from "./graph/types.js";
 import type { WorkingMemory } from "./working/types.js";
+import type { ForgetOptions, ForgetResult, RetentionPolicy } from "./retention/types.js";
 
 const DEFAULT_AGENT_PROFILE: AgentMemoryProfile = {
   agentId: "default",
@@ -92,6 +94,7 @@ export class Memorai {
    * `MemoraiConfig.workingMemory`.
    */
   readonly workingMemory: WorkingMemory;
+  private readonly retentionPolicy: RetentionPolicy;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
   private writesSinceEvolve = 0;
@@ -104,6 +107,7 @@ export class Memorai {
     this.vectorIndex = config.vectorIndex;
     this.entityGraph = config.entityGraph;
     this.workingMemory = config.workingMemory ?? new InMemoryWorkingMemory();
+    this.retentionPolicy = config.retentionPolicy ?? new DefaultRetentionPolicy();
     this.retrieval = new RetrievalEngine(config.storage, this.vectorIndex, this.entityGraph);
     this.evolution = new EvolutionEngine(config.storage, config.evolution);
     this.agentProfile = config.agentProfile ?? DEFAULT_AGENT_PROFILE;
@@ -1090,6 +1094,94 @@ export class Memorai {
     }
   }
 
+  /**
+   * Apply a retention policy across storage and evict low-retention nodes.
+   *
+   * `mode: "delete"` (default) removes nodes entirely — Tier 1 raw, Tier 2
+   * annotations, Tier 3 indexes. Use this for bounded-storage deployments
+   * where the raw timeline doesn't need to be preserved.
+   *
+   * `mode: "strip"` keeps the `MemoryNode` but clears `annotations` (Tier
+   * 2) and removes the vector-index entry. The raw timeline (Tier 1) stays
+   * — a later `reAnnotate()` can resurrect the node when a better
+   * extractor appears. Use this when the agent's "永不忘记" promise is
+   * load-bearing.
+   *
+   * Pass `dryRun: true` to compute counts without actually evicting —
+   * useful for sizing a forgetting pass against a threshold.
+   *
+   * Forgetting is **not** auto-triggered. The caller decides when to run
+   * it (after `evolve()`, on a schedule, on STM pressure, etc.).
+   */
+  async forget(opts: ForgetOptions = {}): Promise<ForgetResult> {
+    const mode = opts.mode ?? "delete";
+    const policy = opts.policy ?? this.retentionPolicy;
+    const now = Date.now();
+    const ctx = { now };
+
+    const all = await this.config.storage.listAll();
+    const candidates = opts.filter ? all.filter(opts.filter) : all;
+
+    const toEvict: MemoryNode[] = [];
+    for (const node of candidates) {
+      if (policy.shouldEvict(node, ctx)) {
+        toEvict.push(node);
+      }
+    }
+
+    if (opts.dryRun) {
+      return {
+        scanned: candidates.length,
+        evicted: toEvict.length,
+        kept: candidates.length - toEvict.length,
+        mode,
+        wouldEvictIds: toEvict.map((n) => n.id),
+      };
+    }
+
+    for (const node of toEvict) {
+      if (mode === "delete") {
+        await this.delete(node.id, false);
+      } else {
+        await this.stripNode(node);
+      }
+    }
+
+    return {
+      scanned: candidates.length,
+      evicted: toEvict.length,
+      kept: candidates.length - toEvict.length,
+      mode,
+    };
+  }
+
+  /**
+   * Strip a node's Tier 2 annotations + vector-index entry while keeping
+   * the Tier 1 raw record intact. `forgottenAt` is stamped on `meta` so
+   * a future `reAnnotate()` knows the node was deliberately stripped.
+   */
+  private async stripNode(node: MemoryNode): Promise<void> {
+    const stripped: MemoryNode = {
+      ...node,
+      annotations: {
+        tags: [],
+        salienceScore: 0,
+        modality: node.annotations.modality,
+      },
+      annotatedAt: undefined,
+      annotationVersion: undefined,
+      meta: {
+        ...node.meta,
+        ...(node.meta as { forgottenAt?: number }),
+        forgottenAt: Date.now(),
+      } as MemoryNode["meta"] & { forgottenAt: number },
+    };
+    await this.config.storage.put(stripped);
+    if (this.vectorIndex) {
+      await this.vectorIndex.delete(node.id);
+    }
+  }
+
   /** Update a memory node's annotations / linkage / metadata. Tier 1 `raw` is never modified through this surface — use `reAnnotate()` to regenerate Tier 2 from raw. */
   async update(id: string, patch: NodePatch): Promise<MemoryNode> {
     const node = await this.config.storage.get(id);
@@ -1845,6 +1937,15 @@ export {
   type WorkingMemory,
   type WorkingMemoryEntry,
 } from "./working/index.js";
+export {
+  DefaultRetentionPolicy,
+  type DefaultRetentionPolicyOptions,
+  type ForgetMode,
+  type ForgetOptions,
+  type ForgetResult,
+  type RetentionContext,
+  type RetentionPolicy,
+} from "./retention/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {

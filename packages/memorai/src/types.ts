@@ -6,6 +6,7 @@
 // See ARCHITECTURE.md §1.4 for the full design rationale.
 
 import type { EntityGraph } from "./graph/types.js";
+import type { RetentionPolicy } from "./retention/types.js";
 import type { VectorIndex } from "./vector/types.js";
 import type { WorkingMemory } from "./working/types.js";
 
@@ -792,6 +793,13 @@ export interface MemoraiConfig {
    * implementation when omitted. Always exposed as `Memorai.workingMemory`.
    */
   workingMemory?: WorkingMemory;
+  /**
+   * Optional retention policy used by `Memorai.forget()`. Defaults to
+   * `DefaultRetentionPolicy` (salience + recency + access frequency)
+   * when omitted. Forgetting is not auto-triggered; the caller decides
+   * when to invoke `forget()`.
+   */
+  retentionPolicy?: RetentionPolicy;
   evolution?: Partial<EvolutionConfig>;
   agentProfile?: AgentMemoryProfile;
   /** Default actor when Event.actor is omitted. */
