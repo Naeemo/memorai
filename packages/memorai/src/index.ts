@@ -1885,6 +1885,11 @@ export * from "./types.js";
 export * from "./utils.js";
 export { BM25Index, tokenize as bm25Tokenize } from "./bm25.js";
 export { LLMReranker, parseScores as parseRerankerScores } from "./reranker.js";
+export {
+  TransformersReranker,
+  loadXenovaCrossEncoder,
+  type CrossEncoderScoreFn,
+} from "./reranker-transformers.js";
 export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";
