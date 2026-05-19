@@ -131,7 +131,10 @@ describe("Memorai.recall with temporal resolution", () => {
       },
     ]).nodes;
 
-    const result = await memory.recall("what did alice say yesterday?", { topK: 10 });
+    const result = await memory.recall("what did alice say yesterday?", {
+      topK: 10,
+      resolveTime: true,
+    });
     // Only the yesterday event should fall in the window.
     expect(result.memories.length).toBeGreaterThan(0);
     expect(result.memories.every((m) => m.summary === "yesterday event")).toBe(true);

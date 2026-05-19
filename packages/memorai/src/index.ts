@@ -206,10 +206,13 @@ export class Memorai {
     const preRerankTopK = this.config.reranker ? Math.min(topK * 3, 30) : topK;
 
     // Auto-resolve temporal expressions in the question when the caller
-    // didn't provide an explicit `timeRange`. "What did Alice tell me
-    // yesterday?" gains a yesterday-bounded `timeRange`, dropping the
-    // temporal pathway from "weakest LoCoMo category" to first-class.
-    const effectiveOpts = opts.timeRange ? opts : this.applyTemporalResolution(question, opts);
+    // opted in AND didn't already supply `timeRange`. Off by default —
+    // the heuristic resolver fires on phrasings it doesn't actually
+    // understand and can over-constrain temporal queries. Enable
+    // `opts.resolveTime: true` when your queries use simple, concrete
+    // time markers ("yesterday", "in March", "two weeks ago").
+    const effectiveOpts =
+      opts.resolveTime && !opts.timeRange ? this.applyTemporalResolution(question, opts) : opts;
 
     const eventsEnabled = effectiveOpts.includeEvents !== false && this.identifier !== undefined;
 

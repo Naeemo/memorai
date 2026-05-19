@@ -630,6 +630,14 @@ export interface RecallOptions {
    *  event-level pathway. Defaults to true — recall returns what the agent
    *  currently believes, not the full audit trail. */
   excludeInvalidatedEvents?: boolean;
+  /**
+   * Auto-detect time expressions in the question and populate `timeRange`.
+   * Off by default — the heuristic resolver fires on phrasings it doesn't
+   * fully understand (e.g. "when we last spoke") and can over-constrain
+   * temporal queries. Enable when you know your queries use simple,
+   * concrete time markers ("yesterday", "in March", "two weeks ago").
+   */
+  resolveTime?: boolean;
   /** Power user escape hatch — overrides go straight to RetrievalQuery. */
   overrideQuery?: Partial<RetrievalQuery>;
 }
