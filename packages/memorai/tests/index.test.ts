@@ -1591,6 +1591,67 @@ describe("Memorai event recall — additional coverage", () => {
     const afterCount = (await memory.listEvents()).length;
     expect(afterCount).toBe(beforeCount);
   });
+
+  test("cross-event dedup collapses events with the same normalized description", async () => {
+    // Two evolve() passes, each batch produces an event with the same
+    // canonical description but different ids + sourceNodeIds — the
+    // identifier ran over overlapping batches.
+    const identifier = new ScriptedIdentifier([
+      (ctx) => [
+        {
+          kind: "state",
+          description: "Alice prefers tea.",
+          participants: ["alice"],
+          topics: ["preference"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: [ctx.nodes[0].id],
+        },
+      ],
+      (ctx) => [
+        {
+          kind: "state",
+          description: "alice prefers tea",
+          participants: ["alice"],
+          topics: ["preference"],
+          occurredAt: ctx.nodes[0].timestamp,
+          sourceNodeIds: [ctx.nodes[0].id],
+        },
+      ],
+    ]);
+
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      identifier,
+      evolution: { mode: "manual" },
+    });
+
+    await memory.write({
+      timestamp: 1000,
+      raw: { content: { kind: "observation", text: "alice tea 1" }, text: "alice tea 1" },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+    await memory.evolve();
+
+    await memory.write({
+      timestamp: 2000,
+      raw: { content: { kind: "observation", text: "alice tea 2" }, text: "alice tea 2" },
+      annotations: { tags: [], salienceScore: 0.5, modality: ["text"] },
+    });
+    await memory.evolve();
+
+    // Two events stored.
+    const allEvents = await memory.listEvents();
+    expect(allEvents.length).toBe(2);
+
+    // But recall surfaces only one (the dedup kept the higher-scoring
+    // twin and merged the dropped twin's sourceNodeIds).
+    const result = await memory.recall("alice tea", { topK: 5 });
+    const eventHits = result.memories.filter((m) => m.eventKind);
+    expect(eventHits.length).toBe(1);
+    // Merged sourceNodeIds carry both originating raw nodes.
+    expect(eventHits[0].sourceNodeIds?.length).toBe(2);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════

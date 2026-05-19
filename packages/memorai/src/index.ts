@@ -367,6 +367,12 @@ export class Memorai {
         score: number;
         pathways: Set<string>;
         pathwayScores: Record<string, number>;
+        /**
+         * When cross-event dedup collapses two events with the same
+         * description, the dropped twin's sourceNodeIds are merged in
+         * here so downstream `coveredByEvent` dedup still sees them.
+         */
+        mergedSourceNodeIds?: readonly string[];
       }
     >();
 
@@ -407,6 +413,14 @@ export class Memorai {
       );
     }
 
+    // Cross-event dedup: when the identifier ran over overlapping batches
+    // it can produce multiple MemoryEvents with the same canonical
+    // description ("Alice prefers tea" extracted twice from different
+    // segments). Both eat topK slots without adding information. Collapse
+    // by normalized description, keep the higher-scoring entry, and
+    // merge pathway / sourceNodeIds provenance from the dropped twin.
+    candidates = this.dedupeEventCandidates(candidates);
+
     const sorted = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
 
     // Touch lastAccessed for surfaced events. Fire-and-forget; failures
@@ -420,7 +434,7 @@ export class Memorai {
       }),
     ).catch(() => {});
 
-    return sorted.map(({ event, score, pathways, pathwayScores }) => ({
+    return sorted.map(({ event, score, pathways, pathwayScores, mergedSourceNodeIds }) => ({
       id: event.id,
       at: event.occurredAt,
       userId: event.userId,
@@ -434,13 +448,66 @@ export class Memorai {
       // `eventKind` to mark the layer.
       level: "segment" as MemoryLevel,
       eventKind: event.kind,
-      sourceNodeIds: event.sourceNodeIds,
+      sourceNodeIds: mergedSourceNodeIds ?? event.sourceNodeIds,
       provenance: {
         pathways: [...pathways],
         fusedScore: score,
         pathwayScores,
       },
     }));
+  }
+
+  /**
+   * Cross-event dedup. The identifier can run over overlapping batches
+   * and extract the same fact twice ("Alice prefers tea" as two distinct
+   * MemoryEvents). Both eat topK slots without adding information.
+   *
+   * Collapse by normalized description (lowercase, whitespace-collapsed,
+   * punctuation-stripped). The higher-scoring entry survives; the dropped
+   * twin's pathway provenance and sourceNodeIds are merged in — so
+   * downstream `coveredByEvent` dedup against raw nodes still sees the
+   * full coverage and pathway scores stay honest.
+   *
+   * Events with empty descriptions can't collide, so they pass through
+   * untouched.
+   */
+  private dedupeEventCandidates(
+    candidates: Array<{
+      event: MemoryEvent;
+      score: number;
+      pathways: Set<string>;
+      pathwayScores: Record<string, number>;
+      mergedSourceNodeIds?: readonly string[];
+    }>,
+  ): typeof candidates {
+    const byDesc = new Map<string, (typeof candidates)[number]>();
+    for (const c of candidates) {
+      const key = normalizeEventDescription(c.event.description);
+      if (!key) {
+        // No usable description — can't safely collide; keep each one.
+        byDesc.set(`__id:${c.event.id}`, c);
+        continue;
+      }
+      const existing = byDesc.get(key);
+      if (!existing) {
+        byDesc.set(key, c);
+        continue;
+      }
+
+      const [keep, drop] = c.score > existing.score ? [c, existing] : [existing, c];
+      for (const p of drop.pathways) keep.pathways.add(p);
+      for (const [k, v] of Object.entries(drop.pathwayScores)) {
+        keep.pathwayScores[k] = Math.max(keep.pathwayScores[k] ?? 0, v);
+      }
+      // Combine sourceNodeIds from both events so downstream
+      // node-vs-event dedup covers everything the dropped twin saw.
+      const ids = new Set<string>();
+      for (const id of keep.mergedSourceNodeIds ?? keep.event.sourceNodeIds) ids.add(id);
+      for (const id of drop.mergedSourceNodeIds ?? drop.event.sourceNodeIds) ids.add(id);
+      keep.mergedSourceNodeIds = [...ids];
+      byDesc.set(key, keep);
+    }
+    return [...byDesc.values()];
   }
 
   /**
@@ -2098,6 +2165,20 @@ export class Memorai {
 
     return compressed;
   }
+}
+
+/**
+ * Normalize a MemoryEvent description for dedup comparison. Lowercases,
+ * collapses whitespace, and strips punctuation — so "Alice prefers tea."
+ * and "alice prefers tea" collapse to the same key.
+ */
+function normalizeEventDescription(s: string | undefined): string {
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
