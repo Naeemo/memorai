@@ -2,6 +2,108 @@
 
 This directory contains the canonical benchmark runs committed alongside Memorai's published versions. Day-to-day runs land in the parent `results/` directory (gitignored); only runs we want to cite go here.
 
+## 2026-05-20 — Memorai v0.5 (HNSW + belief revision + SQLite events + iterative + decompose + dedup + confidence-temporal + filter-pushdown + prompts)
+
+Ten features landed on top of the 2026-05-19 post-commit cut:
+
+- **HNSW vector index** — sub-linear ANN backend via `hnswlib-node` peer dep (`c04b447`)
+- **HNSW filter pushdown** — metadata filters move into `searchKnn` callback so strict filters return exactly topK (`ced2872`)
+- **Persistent SQLite EventStore** — replaces InMemoryEventStore for durability (`5757616`)
+- **Belief revision** — explicit `reviseBelief` / `revisionsOf` walking the supersedes chain (`a41cdfb`)
+- **LLM-summary noise fix** — `coveredByEvent` flag suppresses redundant `annotations.summary` from BM25/embed when an event covers the node (`f2c980b`)
+- **Iterative recall** — multi-pass `recall → LLM judge → rewrite` loop (`2b8ffcb`)
+- **Sub-query decomposition** — `RecallOptions.decompose: true` splits multi-hop questions, RRF-fuses (`b66c5c5`)
+- **Cross-event dedup** — `recallEvents` collapses MemoryEvents with same normalized description (`388d571`)
+- **Confidence-gated temporal** — `low`-confidence resolver matches drop even with `resolveTime: true` (`678afc9`)
+- **Strengthened extractor / identifier prompts** — few-shot examples + tighter constraints (`ee33515`)
+
+### Headline (LongMemEval oracle, first 50 conversations)
+
+| Run | Accuracy | Δ vs baseline | Duration | Avg latency |
+|-----|---------:|--------------:|---------:|------------:|
+| **v0.5 wrap + identifier llm** | **58.00%** (29/50) | — | 56 min | 4.4s |
+| v0.5 wrap + identifier llm + `--decompose` + `--resolve-time` | **60.00%** (30/50) | **+2.0pp** | 42 min | 9.6s |
+
+Reading: decompose + confidence-gated temporal nudge accuracy by +2pp on a 50-conversation sample — within the ±2-5pp LLM-judge variance window. The per-query LLM-call count goes from 1 (identifier-only) to 2-5 (identifier + decompose's sub-query split + iterative judge if enabled), and average latency more than doubles. Trade-off is real: enable these for accuracy-sensitive paths, leave them off for cost-sensitive ones.
+
+The 50-conversation sample is 2.5× the prior 20-conv published runs; the larger sample is what brought the headline number down to 58% (post-fix 70% on 20 conv was within run-to-run variance of 75%; the 50-conv 58% sits below both — suggesting the prior 20-conv samples were favorable).
+
+### LoCoMo conv-26 — `--extractor llm + --identifier llm` revisit
+
+| Run | Accuracy | Δ vs 0.4.0 same config | Duration |
+|-----|---------:|----:|---------:|
+| 0.4.0 `--extractor llm + --identifier llm` | 32.89% (50/152) | — | 71.9 min |
+| **v0.5 `--extractor llm + --identifier llm`** | **29.61%** (45/152) | **-3.28pp** | 115 min |
+
+The `f2c980b` `coveredByEvent` suppression was supposed to close the original -3.95pp regression vs `wrap + identifier llm` on this slice. It didn't: this run came in -3.28pp **below** the already-regressed 0.4.0 number. Two confounders:
+
+1. One LLM identifier batch hit `fetch failed` mid-run before the bench's retry logic was in place. The nodes in that batch never got `coveredByEvent = true` set — so the suppression mechanism didn't fire for them.
+2. The new prompt (`ee33515`) doubled the system-prompt length with few-shot examples. Per-call latency rose ~60%, which (combined with the cloud timeout) suggests the gemma4:31b-cloud is being pushed harder per request — potentially degrading output quality on this slow path.
+
+Per-category:
+
+| Category | Accuracy |
+|----------|---------:|
+| open_domain | 45.7% (32/70) |
+| single_hop | 25.0% (8/32) |
+| multi_hop | 23.1% (3/13) |
+| temporal | 5.4% (2/37) |
+
+Action items the result makes explicit:
+
+- The `coveredByEvent` fix is architecturally correct (unit-tested) but its benchmark impact is null-to-negative on this slice. Investigate whether the LLMExtractor's summary actually competes meaningfully with the event description in the embedding space, or whether the regression is dominated by extractor noise unrelated to summary suppression.
+- Reduce the new prompt's token overhead (the few-shot examples can be shorter or stripped from the prompt and surfaced only on first call). The latency cost was visible.
+
+### Configuration used
+
+- Memorai v0.5 (HEAD of `main` at `cd33f08`)
+- Embedder: `nomic-embed-text` via Ollama (768-d)
+- Extractor: `WrapExtractor` (no LLM) for LongMemEval runs; `LLMExtractor` with `gemma4:31b-cloud` for LoCoMo `--extractor llm` variant
+- Event identifier: `LLMEventIdentifier` with `gemma4:31b-cloud`
+- Answerer: `gemma4:31b-cloud`
+- Judge: `qwen3-coder-next:cloud`
+- Top-K: 30
+- Storage: in-memory; one identification pass per session
+
+### How to reproduce
+
+```bash
+# LongMemEval 50-conv baseline
+pnpm --filter @memorai/benchmarks bench:longmemeval \
+  --limit 50 \
+  --identifier llm \
+  --identifier-model gemma4:31b-cloud \
+  --answerer-model gemma4:31b-cloud \
+  --judge-model qwen3-coder-next:cloud
+
+# LongMemEval 50-conv + decompose + resolve-time
+pnpm --filter @memorai/benchmarks bench:longmemeval \
+  --limit 50 \
+  --identifier llm \
+  --identifier-model gemma4:31b-cloud \
+  --decompose \
+  --resolve-time \
+  --answerer-model gemma4:31b-cloud \
+  --judge-model qwen3-coder-next:cloud
+
+# LoCoMo conv-26 with --extractor llm
+pnpm --filter @memorai/benchmarks bench:locomo \
+  --limit 1 \
+  --extractor llm \
+  --extractor-model gemma4:31b-cloud \
+  --identifier llm \
+  --identifier-model gemma4:31b-cloud \
+  --answerer-model gemma4:31b-cloud \
+  --judge-model qwen3-coder-next:cloud
+```
+
+### Caveats
+
+- LLM-as-judge is non-deterministic. The `qwen3-coder-next:cloud` judge produces ±2-5pp run-to-run noise on these sample sizes. Numbers within that band are not signal.
+- LongMemEval _oracle split has a single category (temporal-reasoning) at this sample size — the per-category breakdown is identical to overall accuracy.
+- The full LoCoMo 10-conv aggregate is still pending — the first attempt died on conv 4/10 from a single Ollama Cloud 502 timeout (~2 hours in). Retry logic landed in `cd33f08`; aggregate re-run is queued.
+- The `--iterative-recall` flag is wired into the harness (`e7b87ce`) but not yet benchmarked — the per-query LLM-call multiplier was prohibitive for the runs that fit this round's time budget.
+
 ## 2026-05-19 — Memorai post-commit (vector + graph + procedural + temporal + profile)
 
 Five new features landed on top of 0.4.0:
