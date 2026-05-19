@@ -2016,7 +2016,7 @@ export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";
 export { RetrievalEngine, extractEntityTokens } from "./retrieval.js";
-export { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
+export { InMemoryEventStore, LLMEventIdentifier, SQLiteEventStore } from "./events/index.js";
 export {
   BrowserImageCompressor,
   PassthroughCompressor,
