@@ -101,6 +101,28 @@ describe("resolveTimeExpression", () => {
     expect(center).toBeGreaterThan(now);
     expect(center - now).toBeLessThan(4 * 60 * 60 * 1000);
   });
+
+  test("confidence — explicit day phrasings are high", () => {
+    const now = new Date(2026, 4, 18, 14, 0).getTime();
+    expect(resolveTimeExpression("yesterday's meeting", now)?.confidence).toBe("high");
+    expect(resolveTimeExpression("what about today", now)?.confidence).toBe("high");
+    expect(resolveTimeExpression("two weeks ago", now)?.confidence).toBe("high");
+    expect(resolveTimeExpression("last tuesday", now)?.confidence).toBe("high");
+    expect(resolveTimeExpression("next week", now)?.confidence).toBe("high");
+    expect(resolveTimeExpression("last march", now)?.confidence).toBe("high");
+  });
+
+  test("confidence — day-parts anchored to today are medium", () => {
+    const now = new Date(2026, 4, 18, 14, 0).getTime();
+    expect(resolveTimeExpression("this morning", now)?.confidence).toBe("medium");
+    expect(resolveTimeExpression("this evening", now)?.confidence).toBe("medium");
+    expect(resolveTimeExpression("this afternoon", now)?.confidence).toBe("medium");
+  });
+
+  test("confidence — bare month names without modifier are low", () => {
+    const now = new Date(2026, 4, 18, 14, 0).getTime();
+    expect(resolveTimeExpression("in march sometime", now)?.confidence).toBe("low");
+  });
 });
 
 // ─── Integration: recall auto-applies temporal resolution ───
@@ -181,6 +203,30 @@ describe("Memorai.recall with temporal resolution", () => {
     }).nodes;
     const result = await memory.recall("interesting note", { topK: 3 });
     expect(result.memories.length).toBeGreaterThan(0);
+    await memory.close();
+  });
+
+  test("low-confidence resolution is dropped even with resolveTime: true", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+    const recentTs = Date.now() - DAY_MS;
+    await memory.recordEvent({
+      at: recentTs,
+      actor: "u",
+      content: { kind: "message", text: "discussed march budget" },
+    }).nodes;
+    // "in march" alone is low-confidence — resolver returns a range but
+    // applyTemporalResolution drops it. The recall should match the
+    // recent note via semantic / BM25 without being anchored to a
+    // guessed March window.
+    const result = await memory.recall("discussed march budget", {
+      topK: 3,
+      resolveTime: true,
+    });
+    expect(result.memories.some((m) => m.summary === "discussed march budget")).toBe(true);
     await memory.close();
   });
 });

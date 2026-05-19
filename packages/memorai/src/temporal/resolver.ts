@@ -16,6 +16,20 @@ export interface ResolvedTimeRange {
   end: number;
   /** A short label describing which pattern matched — useful for logging. */
   label: string;
+  /**
+   * How sure we are that this range reflects the user's actual temporal
+   * intent. Callers can gate auto-apply on this — the recall layer drops
+   * `low`-confidence resolutions because they're too ambiguous to safely
+   * anchor a query on (bare month names without modifier, vague "morning"
+   * without an explicit day, etc.).
+   *
+   *   - "high"   — explicit dates ("yesterday", "today"), explicit
+   *                offsets ("3 days ago"), weekday names with
+   *                last/next, periods with last/next/this.
+   *   - "medium" — day-parts anchored to "today" / "yesterday".
+   *   - "low"    — bare month names without a modifier.
+   */
+  confidence: "high" | "medium" | "low";
 }
 
 const WEEKDAY_NAMES: Record<string, number> = {
@@ -173,7 +187,7 @@ function endOfDay(t: number): number {
 }
 
 function rangeForDay(t: number, label: string): ResolvedTimeRange {
-  return { start: startOfDay(t), end: endOfDay(t), label };
+  return { start: startOfDay(t), end: endOfDay(t), label, confidence: "high" };
 }
 
 function rangeForDayPart(t: number, part: string): ResolvedTimeRange {
@@ -185,6 +199,7 @@ function rangeForDayPart(t: number, part: string): ResolvedTimeRange {
         start: d.getTime(),
         end: d.getTime() + 6 * UNIT_MS.hour,
         label: `${part}`,
+        confidence: "medium",
       };
     case "afternoon":
       d.setHours(12, 0, 0, 0);
@@ -192,6 +207,7 @@ function rangeForDayPart(t: number, part: string): ResolvedTimeRange {
         start: d.getTime(),
         end: d.getTime() + 5 * UNIT_MS.hour,
         label: `${part}`,
+        confidence: "medium",
       };
     case "evening":
       d.setHours(17, 0, 0, 0);
@@ -199,6 +215,7 @@ function rangeForDayPart(t: number, part: string): ResolvedTimeRange {
         start: d.getTime(),
         end: d.getTime() + 5 * UNIT_MS.hour,
         label: `${part}`,
+        confidence: "medium",
       };
     case "night":
       d.setHours(22, 0, 0, 0);
@@ -206,6 +223,7 @@ function rangeForDayPart(t: number, part: string): ResolvedTimeRange {
         start: d.getTime(),
         end: d.getTime() + 6 * UNIT_MS.hour,
         label: `${part}`,
+        confidence: "medium",
       };
     default:
       return rangeForDay(t, "today");
@@ -231,6 +249,7 @@ function rangeForPeriod(now: number, modifier: string, period: string): Resolved
       start: sunday.getTime(),
       end: saturday.getTime(),
       label: `${modifier} week`,
+      confidence: "high",
     };
   }
 
@@ -241,6 +260,7 @@ function rangeForPeriod(now: number, modifier: string, period: string): Resolved
       start: target.getTime(),
       end: next.getTime() - 1,
       label: `${modifier} month`,
+      confidence: "high",
     };
   }
 
@@ -251,10 +271,11 @@ function rangeForPeriod(now: number, modifier: string, period: string): Resolved
       start: target.getTime(),
       end: next.getTime() - 1,
       label: `${modifier} year`,
+      confidence: "high",
     };
   }
 
-  return { start: now, end: now, label: `${modifier} ${period}` };
+  return { start: now, end: now, label: `${modifier} ${period}`, confidence: "high" };
 }
 
 function rangeForRelativeOffset(now: number, deltaMs: number, unit: string): ResolvedTimeRange {
@@ -265,6 +286,7 @@ function rangeForRelativeOffset(now: number, deltaMs: number, unit: string): Res
     start: center - tolerance,
     end: center + tolerance,
     label: `${deltaMs < 0 ? "ago" : "future"} ${unit}`,
+    confidence: "high",
   };
 }
 
@@ -300,10 +322,15 @@ function rangeForMonth(now: number, modifier: string, monthIdx: number): Resolve
   }
   const start = new Date(year, monthIdx, 1, 0, 0, 0, 0);
   const end = new Date(year, monthIdx + 1, 1, 0, 0, 0, 0);
+  // "last March" / "next March" / "this March" have a clear referent.
+  // Bare "March" / "in March" — we picked "most recent occurrence" above,
+  // but that's a guess; flag the ambiguity so callers can choose to skip.
+  const isAmbiguous = modifier === "in";
   return {
     start: start.getTime(),
     end: end.getTime() - 1,
     label: `${modifier} ${monthIdx}`,
+    confidence: isAmbiguous ? "low" : "high",
   };
 }
 

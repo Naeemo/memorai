@@ -295,12 +295,20 @@ export class Memorai {
 
   /**
    * Auto-detect time expressions in the question and populate `opts.timeRange`.
-   * No-op when the resolver finds nothing — the original `opts` flows
-   * unchanged so retrieval can fall back to a global search.
+   * No-op when the resolver finds nothing OR when the match is low-confidence
+   * (bare month names without modifier — ambiguous which year is meant). The
+   * original `opts` flows unchanged so retrieval can fall back to a global
+   * search.
    */
   private applyTemporalResolution(question: string, opts: RecallOptions): RecallOptions {
     const resolved = resolveTimeExpression(question);
     if (!resolved) return opts;
+    // Drop low-confidence matches even when the caller opted in — they're
+    // too ambiguous to safely anchor a query on. This was the source of
+    // the -10pp regression that drove the original opt-in fix; gating on
+    // confidence lets users keep `resolveTime: true` on without that
+    // class of misfire.
+    if (resolved.confidence === "low") return opts;
     return {
       ...opts,
       timeRange: { start: resolved.start, end: resolved.end },
