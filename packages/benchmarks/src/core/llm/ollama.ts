@@ -15,27 +15,55 @@ export async function ollamaGenerate(
   model = "gemma4:31b-cloud",
   opts?: { temperature?: number; maxTokens?: number },
 ): Promise<string> {
-  const response = await fetch(`${OLLAMA_BASE}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
-      options: {
-        temperature: opts?.temperature ?? 0.1,
-        num_predict: opts?.maxTokens ?? 256,
-      },
-    }),
-  });
+  // Cloud models occasionally return 502 / connection-timeout / read-timeout
+  // during sustained benchmark loads. A single transient failure shouldn't
+  // take down a multi-hour run, so retry 3× with exponential backoff before
+  // surfacing the error to callers.
+  const maxAttempts = 3;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      // 4s, 16s, 64s — wide enough that transient cloud-side throttles clear.
+      const backoffMs = 4000 * Math.pow(4, attempt - 1);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+    try {
+      const response = await fetch(`${OLLAMA_BASE}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          prompt,
+          stream: false,
+          options: {
+            temperature: opts?.temperature ?? 0.1,
+            num_predict: opts?.maxTokens ?? 256,
+          },
+        }),
+      });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Ollama generate failed: ${response.status} ${text}`);
+      if (!response.ok) {
+        const text = await response.text();
+        // 4xx errors are usually permanent (bad request, model not found);
+        // 5xx are usually transient (overload, gateway issues).
+        const transient = response.status >= 500 && response.status < 600;
+        const err = new Error(`Ollama generate failed: ${response.status} ${text}`);
+        if (!transient) throw err;
+        lastErr = err;
+        continue;
+      }
+
+      const data = (await response.json()) as OllamaGenerateResponse;
+      return data.response.trim();
+    } catch (err) {
+      lastErr = err;
+      // Network-level failures (read timeout, ECONNRESET, etc.) are always
+      // worth retrying; the response.ok 5xx path also lands here via re-throw.
+      const message = err instanceof Error ? err.message : String(err);
+      if (/4\d\d/.test(message) && !/5\d\d/.test(message)) throw err;
+    }
   }
-
-  const data = (await response.json()) as OllamaGenerateResponse;
-  return data.response.trim();
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 export async function ollamaEmbed(
