@@ -201,10 +201,13 @@ export class Memorai {
    * Natural-language recall. Returns the most relevant memories along with
    * confidence and traversal stats.
    *
-   * When `queryExpansion` and/or `hyde` are set (and a LLM is configured),
-   * the question is expanded into multiple variant queries before retrieval,
-   * and the results are fused via outer Reciprocal Rank Fusion. Each variant
-   * shows up as a separate pathway in the final memory's `provenance`.
+   * When `queryExpansion`, `hyde`, and/or `decompose` are set (and a LLM
+   * is configured), the question is expanded into multiple variant
+   * queries before retrieval and results are fused via outer Reciprocal
+   * Rank Fusion. Each variant shows up as a separate pathway in the
+   * final memory's `provenance` — `expansion:N` for paraphrases,
+   * `hyde` for the hypothetical-answer embedding, and `decompose:N` for
+   * sub-questions split from a multi-hop query.
    *
    * When an `EventIdentifier` is configured, recall also runs in parallel
    * over MemoryEvents (state / transition / happening) and outer-fuses the
@@ -212,7 +215,7 @@ export class Memorai {
    * `opts.includeEvents = false` to disable.
    *
    * When `MemoraiConfig.reranker` is set, a final reranker pass refines the
-   * top-N candidates for precision. Both expansion and reranking are
+   * top-N candidates for precision. All expansion modes and reranking are
    * opt-in and gracefully no-op when their dependencies aren't configured.
    */
   async recall(question: string, opts: RecallOptions = {}): Promise<RecallResult> {
@@ -1729,6 +1732,40 @@ export class Memorai {
       );
     }
 
+    if (opts.decompose) {
+      tasks.push(
+        (async () => {
+          try {
+            // Decompose into independent sub-questions. "Independent" is the
+            // key word — paraphrases (queryExpansion) preserve intent, this
+            // splits the intent. If the question isn't decomposable, the LLM
+            // is instructed to return a single line equal to the original.
+            const prompt =
+              `Decompose the following question into 2 to 4 independent sub-questions, each retrievable from a memory store. ` +
+              `If the question is already simple and cannot be broken down, output a single line equal to the original question. ` +
+              `Output one sub-question per line, no numbering, no commentary.\n\n` +
+              `QUESTION: ${question}\n\nSub-questions:`;
+            const raw = await llm.complete(prompt, {
+              temperature: 0.2,
+              maxTokens: 256,
+            });
+            const lines = raw
+              .split(/\r?\n/)
+              .map((l) => l.replace(/^[\s\-•*\d.()]+/, "").trim())
+              .filter((l) => l.length > 4 && l.length < 400);
+            // Drop lines identical to the primary question — that's the
+            // "not decomposable" output the prompt signals.
+            const distinct = lines.filter((l) => l !== question).slice(0, 4);
+            for (const [i, sub] of distinct.entries()) {
+              variants.push({ text: sub, tag: `decompose:${i}` });
+            }
+          } catch {
+            // best-effort; ignore decompose failures
+          }
+        })(),
+      );
+    }
+
     await Promise.all(tasks);
     return variants;
   }
@@ -1824,7 +1861,11 @@ export class Memorai {
         ? 0
         : memories.reduce((sum, m) => {
             const variantHits = (m.provenance?.pathways ?? []).filter(
-              (p) => p === "primary" || p === "hyde" || p.startsWith("expansion:"),
+              (p) =>
+                p === "primary" ||
+                p === "hyde" ||
+                p.startsWith("expansion:") ||
+                p.startsWith("decompose:"),
             ).length;
             return sum + Math.min(1, variantHits / totalVariants);
           }, 0) / memories.length;

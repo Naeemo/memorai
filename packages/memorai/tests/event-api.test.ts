@@ -457,6 +457,76 @@ describe("Multi-pathway recall", () => {
     await memory.close();
   });
 
+  test("decompose splits multi-hop questions into sub-queries", async () => {
+    const stubLLM: LLMService = {
+      complete: async (prompt) => {
+        if (prompt.includes("Decompose")) {
+          return "When did Alice mention the password?\nWhat is the password Alice mentioned?";
+        }
+        return "stub";
+      },
+    };
+    const memory = new Memorai({ ...baseConfig(), llm: stubLLM });
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      content: { kind: "message", text: "the secret password is rosebud" },
+    }).nodes;
+
+    const result = await memory.recall("when did alice mention the password and what was it", {
+      topK: 5,
+      decompose: true,
+    });
+    expect(result.memories.length).toBeGreaterThan(0);
+    const allPathways = result.memories.flatMap((m) => m.provenance?.pathways ?? []);
+    expect(allPathways.some((p) => p.startsWith("decompose:"))).toBe(true);
+    await memory.close();
+  });
+
+  test("decompose treats 'not decomposable' single-line output as no-op", async () => {
+    const stubLLM: LLMService = {
+      complete: async (prompt) => {
+        if (prompt.includes("Decompose")) {
+          // LLM judged the question simple and echoed it back verbatim.
+          return "what color is the sky";
+        }
+        return "stub";
+      },
+    };
+    const memory = new Memorai({ ...baseConfig(), llm: stubLLM });
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      content: { kind: "message", text: "the sky is blue today" },
+    }).nodes;
+
+    const result = await memory.recall("what color is the sky", {
+      topK: 5,
+      decompose: true,
+    });
+    // No decompose:* pathways should appear because the LLM echoed back.
+    const allPathways = result.memories.flatMap((m) => m.provenance?.pathways ?? []);
+    expect(allPathways.some((p) => p.startsWith("decompose:"))).toBe(false);
+    await memory.close();
+  });
+
+  test("decompose with no LLM falls through to primary-only", async () => {
+    const memory = new Memorai(baseConfig()); // no LLM
+    await memory.recordEvent({
+      at: Date.now(),
+      actor: "alice",
+      content: { kind: "message", text: "the sky is blue today" },
+    }).nodes;
+
+    const result = await memory.recall("what color and when", {
+      topK: 5,
+      decompose: true,
+    });
+    const allPathways = result.memories.flatMap((m) => m.provenance?.pathways ?? []);
+    expect(allPathways.some((p) => p.startsWith("decompose:"))).toBe(false);
+    await memory.close();
+  });
+
   test("recall without LLM is unchanged when expansion/hyde are off", async () => {
     const memory = new Memorai(baseConfig()); // no llm
     await memory.recordEvent({

@@ -649,6 +649,15 @@ export interface RecallOptions {
   queryExpansion?: number;
   /** HyDE — generate a hypothetical answer with the LLM, embed it, use as an extra semantic pathway. Requires MemoraiConfig.llm. */
   hyde?: boolean;
+  /**
+   * Decompose the question into independent sub-questions via the LLM and
+   * run each as a parallel variant fused into the result. Use for
+   * multi-hop questions where a single retrieval under-fills the answer
+   * (e.g. "when did X happen and what did Y say about it" — needs two
+   * lookups). Each sub-question lands in provenance as `decompose:N`.
+   * Requires MemoraiConfig.llm.
+   */
+  decompose?: boolean;
   /** Disable event-level recall even if an EventIdentifier is configured.
    *  Defaults to true (event recall on) when an identifier is set. */
   includeEvents?: boolean;
