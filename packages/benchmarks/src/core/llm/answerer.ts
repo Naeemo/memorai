@@ -1,4 +1,5 @@
 import { backendComplete, type LLMBackend } from "./pick.js";
+import { isReasoningModel } from "./openai.js";
 import type { MemoryHit } from "../provider.js";
 
 const ANSWERER_SYSTEM =
@@ -14,9 +15,7 @@ export async function generateAnswer(
   let budget = MAX_HIT_CHARS;
   const lines: string[] = [];
   for (const [i, h] of hits.entries()) {
-    const ts = h.timestampMs
-      ? new Date(h.timestampMs).toISOString().slice(0, 10)
-      : "";
+    const ts = h.timestampMs ? new Date(h.timestampMs).toISOString().slice(0, 10) : "";
     const prefix = `${i + 1}. ${ts ? `[t=${ts}] ` : ""}`;
     const remaining = budget - prefix.length;
     if (remaining <= 0) break;
@@ -26,8 +25,12 @@ export async function generateAnswer(
   }
 
   const user = `MEMORIES (most relevant first):\n${lines.join("\n")}\n\nQUESTION: ${question}`;
+  // Reasoning models (Kimi K2.6, o-series) need much more room — they burn
+  // most of `max_tokens` on internal chain-of-thought before emitting the
+  // final answer. Non-reasoning models stop well before 256.
+  const maxTokens = isReasoningModel(backend.model) ? 4096 : 256;
   return backendComplete(backend, ANSWERER_SYSTEM, user, {
     temperature: 0,
-    maxTokens: 256,
+    maxTokens,
   });
 }

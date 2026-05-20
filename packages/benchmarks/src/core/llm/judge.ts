@@ -1,4 +1,5 @@
 import { backendComplete, type LLMBackend } from "./pick.js";
+import { isReasoningModel } from "./openai.js";
 
 const JUDGE_SYSTEM =
   "You are a strict grader. A prediction is CORRECT iff it conveys the same answer as the gold. Reply with exactly one token: CORRECT or INCORRECT.";
@@ -13,12 +14,13 @@ export async function judgeBinary(
 ): Promise<JudgeLabel> {
   const user = `QUESTION: ${question}\nGOLD: ${gold}\nPREDICTION: ${prediction}`;
   // maxTokens=256 — non-thinking judges (Gemma, Qwen) emit "CORRECT" / "INCORRECT"
-  // and stop; thinking judges (GLM, MiniMax, Nemotron) burn budget on internal
-  // reasoning before producing the final token, and silently emit empty output
-  // below ~128 tokens. 256 is a safe upper bound for both modes.
+  // and stop; thinking judges (GLM, MiniMax, Nemotron, Kimi K2.x, o-series)
+  // burn budget on internal reasoning before producing the final token, and
+  // silently emit empty output below ~256 tokens.
+  const maxTokens = isReasoningModel(backend.model) ? 4096 : 256;
   const raw = await backendComplete(backend, JUDGE_SYSTEM, user, {
     temperature: 0,
-    maxTokens: 256,
+    maxTokens,
   });
   return parseJudgeLabel(raw);
 }

@@ -24,6 +24,7 @@ import type {
 } from "../core/provider.js";
 import type { Turn } from "../core/types.js";
 import { ollamaGenerate } from "../core/llm/ollama.js";
+import { hasOpenAIKey, isReasoningModel, openaiChat } from "../core/llm/openai.js";
 
 export interface MemoraiProviderOptions {
   ingestMode: IngestMode;
@@ -103,6 +104,36 @@ function makeOllamaLLMService(model: string): LLMService {
   };
 }
 
+function makeOpenAICompatibleLLMService(model: string): LLMService {
+  return {
+    complete: (prompt, opts) => {
+      // Reasoning models burn tokens on chain-of-thought before emitting
+      // the structured output the caller asked for. The default
+      // maxTokens for extractor / identifier (768 / 2048) silently
+      // truncates the reasoning prefix and returns empty / partial JSON.
+      // Bump to 8k for those models so the actual answer survives.
+      const maxTokens = isReasoningModel(model)
+        ? Math.max(opts?.maxTokens ?? 256, 8192)
+        : opts?.maxTokens;
+      return openaiChat([{ role: "user", content: prompt }], model, {
+        temperature: opts?.temperature,
+        maxTokens,
+      });
+    },
+  };
+}
+
+/**
+ * Pick the LLM service that fits the configured env. When OPENAI_API_KEY
+ * is set we route through the OpenAI-compatible client (which honors
+ * OPENAI_BASE_URL — so Moonshot / Kimi / any OpenAI-compat endpoint
+ * works for free). Otherwise we go through Ollama with the local /
+ * cloud model.
+ */
+function makeLLMService(model: string): LLMService {
+  return hasOpenAIKey() ? makeOpenAICompatibleLLMService(model) : makeOllamaLLMService(model);
+}
+
 function pickExtractor(opts: MemoraiProviderOptions): Extractor {
   if (opts.extractor === "llm") {
     const model =
@@ -111,7 +142,7 @@ function pickExtractor(opts: MemoraiProviderOptions): Extractor {
       opts.answererModel ??
       process.env.ANSWERER_MODEL ??
       "gemma4:e2b";
-    return new LLMExtractor({ llm: makeOllamaLLMService(model) });
+    return new LLMExtractor({ llm: makeLLMService(model) });
   }
   return new WrapExtractor();
 }
@@ -124,22 +155,17 @@ function pickReranker(opts: MemoraiProviderOptions): RerankerService | undefined
     opts.answererModel ??
     process.env.ANSWERER_MODEL ??
     "gemma4:31b-cloud";
-  return new LLMReranker({ llm: makeOllamaLLMService(model) });
+  return new LLMReranker({ llm: makeLLMService(model) });
 }
 
 function pickRecallLLM(opts: MemoraiProviderOptions): LLMService | undefined {
   // The query-expansion / HyDE / decompose / iterativeRecall paths need
   // an LLM. Reuse the answerer model unless an explicit override is set.
-  if (
-    !opts.queryExpansion &&
-    !opts.hyde &&
-    !opts.decompose &&
-    !opts.iterativeRecall
-  ) {
+  if (!opts.queryExpansion && !opts.hyde && !opts.decompose && !opts.iterativeRecall) {
     return undefined;
   }
   const model = opts.answererModel ?? process.env.ANSWERER_MODEL ?? "gemma4:31b-cloud";
-  return makeOllamaLLMService(model);
+  return makeLLMService(model);
 }
 
 function pickIdentifier(opts: MemoraiProviderOptions): EventIdentifier | undefined {
@@ -152,7 +178,7 @@ function pickIdentifier(opts: MemoraiProviderOptions): EventIdentifier | undefin
     opts.answererModel ??
     process.env.ANSWERER_MODEL ??
     "gemma4:31b-cloud";
-  return new LLMEventIdentifier({ llm: makeOllamaLLMService(model) });
+  return new LLMEventIdentifier({ llm: makeLLMService(model) });
 }
 
 /**
