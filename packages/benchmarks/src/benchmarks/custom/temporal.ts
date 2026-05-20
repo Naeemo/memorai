@@ -56,8 +56,7 @@ export async function runTemporalBenchmark(): Promise<BenchmarkResult> {
       (n) => n.timestamp >= windowStart && n.timestamp <= windowEnd,
     );
 
-    const recall =
-      expected.length > 0 ? retrievedInRange.length / expected.length : 1;
+    const recall = expected.length > 0 ? retrievedInRange.length / expected.length : 1;
     scores.push(Math.min(1, recall));
   }
 

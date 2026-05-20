@@ -50,21 +50,18 @@ export async function runScalabilityBenchmark(): Promise<BenchmarkResult> {
     details[`n=${corpusSize}_seq_write_ms/item`] = seqPerItem;
     details[`n=${corpusSize}_batch_write_ms/item`] = batchPerItem;
     details[`n=${corpusSize}_retrieve_ms`] = retrieveMs;
-    details[`n=${corpusSize}_speedup`] =
-      (seqPerItem / batchPerItem).toFixed(2) + "x";
+    details[`n=${corpusSize}_speedup`] = (seqPerItem / batchPerItem).toFixed(2) + "x";
 
     await memory.close();
   }
 
   const maxRetrieveMs = retrieveLatencies[retrieveLatencies.length - 1];
-  const score =
-    maxRetrieveMs < 500 ? 1 : Math.max(0, 1 - (maxRetrieveMs - 500) / 2000);
+  const score = maxRetrieveMs < 500 ? 1 : Math.max(0, 1 - (maxRetrieveMs - 500) / 2000);
 
   return {
     name: "Scalability",
     score,
-    latencyMs:
-      retrieveLatencies.reduce((a, b) => a + b, 0) / retrieveLatencies.length,
+    latencyMs: retrieveLatencies.reduce((a, b) => a + b, 0) / retrieveLatencies.length,
     details: {
       ...details,
       avg_batch_speedup:

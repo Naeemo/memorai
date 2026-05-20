@@ -48,19 +48,12 @@ export async function runMultiNeedleBenchmark(): Promise<BenchmarkResult> {
       const latency = performance.now() - start;
       latencies.push(latency);
 
-      const needleText =
-        needle.annotations?.summary ?? needle.raw.text ?? "";
+      const needleText = needle.annotations?.summary ?? needle.raw.text ?? "";
       const needleEmb = await ollamaEmbed(needleText);
       const retrievedEmb = await Promise.all(
-        result.nodes.map((n) =>
-          ollamaEmbed(n.annotations.summary ?? n.raw.text ?? ""),
-        ),
+        result.nodes.map((n) => ollamaEmbed(n.annotations.summary ?? n.raw.text ?? "")),
       );
-      const { found, rank, similarity } = needleInTopK(
-        needleEmb,
-        retrievedEmb,
-        THRESHOLD,
-      );
+      const { found, rank, similarity } = needleInTopK(needleEmb, retrievedEmb, THRESHOLD);
 
       if (found) foundCount++;
       totalRank += rank >= 0 ? rank : TOP_K;

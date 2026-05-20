@@ -137,7 +137,9 @@ function parseArgs(argv: string[]): CliOptions {
         opts.limitQas = Number.parseInt(next(), 10);
         break;
       case "--categories":
-        opts.categories = next().split(",").map((s) => s.trim());
+        opts.categories = next()
+          .split(",")
+          .map((s) => s.trim());
         break;
       case "--no-evolve":
         opts.evolve = false;
@@ -278,8 +280,12 @@ async function runOne(opts: CliOptions): Promise<void> {
 function summarize(result: import("../core/types.js").RunResult): void {
   console.log("");
   console.log(`=== ${result.suite} / ${result.provider} ===`);
-  console.log(`Accuracy: ${(result.accuracy * 100).toFixed(2)}% (${result.correct}/${result.totalQas})`);
-  console.log(`Avg latency: ${result.avgLatencyMs.toFixed(1)}ms, P95: ${result.p95LatencyMs.toFixed(1)}ms`);
+  console.log(
+    `Accuracy: ${(result.accuracy * 100).toFixed(2)}% (${result.correct}/${result.totalQas})`,
+  );
+  console.log(
+    `Avg latency: ${result.avgLatencyMs.toFixed(1)}ms, P95: ${result.p95LatencyMs.toFixed(1)}ms`,
+  );
   console.log(`Duration: ${(result.durationMs / 1000).toFixed(1)}s`);
   console.log("Per-category:");
   for (const c of result.byCategory) {

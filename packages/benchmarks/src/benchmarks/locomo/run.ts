@@ -4,8 +4,10 @@ import { loadLoCoMo } from "./dataset.js";
 
 const DEFAULT_CATEGORIES = ["single_hop", "temporal", "multi_hop", "open_domain"];
 
-export interface LoCoMoRunOptions
-  extends Omit<RunOptions, "suite" | "conversations" | "categories"> {
+export interface LoCoMoRunOptions extends Omit<
+  RunOptions,
+  "suite" | "conversations" | "categories"
+> {
   datasetPath?: string;
   limit?: number;
   categories?: string[];

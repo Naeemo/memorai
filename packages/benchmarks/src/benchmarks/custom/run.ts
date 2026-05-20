@@ -30,9 +30,7 @@ export interface RunCustomOptions {
   onProgress?: (msg: string) => void;
 }
 
-export async function runCustomSuite(
-  opts: RunCustomOptions = {},
-): Promise<BenchmarkSuite> {
+export async function runCustomSuite(opts: RunCustomOptions = {}): Promise<BenchmarkSuite> {
   const onProgress = opts.onProgress ?? ((msg) => process.stdout.write(msg));
   const outDir = opts.outDir ?? "results";
 

@@ -132,9 +132,7 @@ export async function runMultimodalRecallBenchmark(): Promise<BenchmarkResult> {
       samples: SAMPLES.length,
       hits,
       kinds: "image,video,audio,image,file",
-      ...(failures.length > 0
-        ? { failed: failures.join(" | ") }
-        : { failed: "none" }),
+      ...(failures.length > 0 ? { failed: failures.join(" | ") } : { failed: "none" }),
     },
   };
 }

@@ -17,13 +17,16 @@ describe("LoCoMo loader", () => {
           { speaker: "Alice", dia_id: "D1:1", text: "hello bob" },
           { speaker: "Bob", dia_id: "D1:2", text: "hi alice" },
         ],
-        session_2: [
-          { speaker: "Alice", dia_id: "D2:1", text: "are you free tomorrow?" },
-        ],
+        session_2: [{ speaker: "Alice", dia_id: "D2:1", text: "are you free tomorrow?" }],
       },
       qa: [
         { question: "who greeted first?", answer: "Alice", evidence: ["D1:1"], category: 1 },
-        { question: "when did Alice ask about meeting?", answer: "session 2", evidence: ["D2:1"], category: 2 },
+        {
+          question: "when did Alice ask about meeting?",
+          answer: "session 2",
+          evidence: ["D2:1"],
+          category: 2,
+        },
       ],
     });
     expect(conv.id).toBe("s1");
@@ -59,7 +62,11 @@ describe("LoCoMo loader", () => {
       JSON.stringify([
         {
           sample_id: "x",
-          conversation: { speaker_a: "A", speaker_b: "B", session_1: [{ speaker: "A", dia_id: "d", text: "hi" }] },
+          conversation: {
+            speaker_a: "A",
+            speaker_b: "B",
+            session_1: [{ speaker: "A", dia_id: "d", text: "hi" }],
+          },
           qa: [{ question: "?", answer: "yes", evidence: [], category: 1 }],
         },
       ]),
@@ -80,7 +87,10 @@ describe("LongMemEval loader", () => {
       question_type: "single-session-user",
       haystack_dates: ["2024-01-01", "2024-01-02"],
       haystack_sessions: [
-        [{ role: "user", content: "I picked blue" }, { role: "assistant", content: "noted" }],
+        [
+          { role: "user", content: "I picked blue" },
+          { role: "assistant", content: "noted" },
+        ],
         [{ role: "user", content: "unrelated chatter" }],
       ],
     });
@@ -88,9 +98,7 @@ describe("LongMemEval loader", () => {
     expect(conv.qas[0].category).toBe("single-session-user");
     expect(conv.sessions).toHaveLength(2);
     expect(conv.sessions[0][0].timestampMs).toBeGreaterThan(0);
-    expect(conv.sessions[1][0].timestampMs).toBeGreaterThan(
-      conv.sessions[0][0].timestampMs ?? 0,
-    );
+    expect(conv.sessions[1][0].timestampMs).toBeGreaterThan(conv.sessions[0][0].timestampMs ?? 0);
   });
 
   it("handles missing dates", () => {

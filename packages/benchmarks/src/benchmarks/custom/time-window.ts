@@ -71,13 +71,9 @@ export async function runTimeWindowBenchmark(): Promise<BenchmarkResult> {
     // Count how many of the recalled memories actually fall within the window.
     // recallByTime should return ONLY in-window events when the storage layer
     // honours the timeRange filter end-to-end.
-    const inWindow = result.memories.filter(
-      (m) => m.at >= windowStart && m.at <= windowEnd,
-    );
+    const inWindow = result.memories.filter((m) => m.at >= windowStart && m.at <= windowEnd);
     const recall = inWindow.length / expectedCount; // how many in-window we returned, vs how many existed
-    const precision = result.memories.length > 0
-      ? inWindow.length / result.memories.length
-      : 0;
+    const precision = result.memories.length > 0 ? inWindow.length / result.memories.length : 0;
     recallSum += recall;
     precisionSum += precision;
   }
@@ -88,9 +84,7 @@ export async function runTimeWindowBenchmark(): Promise<BenchmarkResult> {
   const avgPrecision = precisionSum / WINDOW_QUERIES;
   // F1 of (recall, precision) at the window level
   const f1 =
-    avgRecall + avgPrecision > 0
-      ? (2 * avgRecall * avgPrecision) / (avgRecall + avgPrecision)
-      : 0;
+    avgRecall + avgPrecision > 0 ? (2 * avgRecall * avgPrecision) / (avgRecall + avgPrecision) : 0;
 
   return {
     name: "Time-Window Recall",

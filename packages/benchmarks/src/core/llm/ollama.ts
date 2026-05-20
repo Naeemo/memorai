@@ -7,8 +7,7 @@ interface OllamaEmbedResponse {
   embedding: number[];
 }
 
-export const OLLAMA_BASE: string =
-  process.env.OLLAMA_HOST ?? "http://localhost:11434";
+export const OLLAMA_BASE: string = process.env.OLLAMA_HOST ?? "http://localhost:11434";
 
 export async function ollamaGenerate(
   prompt: string,
@@ -66,10 +65,7 @@ export async function ollamaGenerate(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
-export async function ollamaEmbed(
-  text: string,
-  model = "nomic-embed-text",
-): Promise<number[]> {
+export async function ollamaEmbed(text: string, model = "nomic-embed-text"): Promise<number[]> {
   const response = await fetch(`${OLLAMA_BASE}/api/embeddings`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

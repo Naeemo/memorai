@@ -1,6 +1,6 @@
 {
   "name": "memorai",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Memory for AI agents — built to remember, recall, and reflect. Runtime-agnostic across Browser, Node.js, Bun, Deno.",
   "homepage": "https://github.com/Naeemo/memorai#readme",
   "bugs": {

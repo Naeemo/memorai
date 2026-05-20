@@ -44,14 +44,8 @@ describe("NaiveRagProvider", () => {
     });
     await provider.init();
 
-    await provider.ingestTurns(
-      [{ role: "user", content: "alpha" }],
-      { userId: "u1" },
-    );
-    await provider.ingestTurns(
-      [{ role: "user", content: "bravo" }],
-      { userId: "u2" },
-    );
+    await provider.ingestTurns([{ role: "user", content: "alpha" }], { userId: "u1" });
+    await provider.ingestTurns([{ role: "user", content: "bravo" }], { userId: "u2" });
 
     const u1Hits = await provider.query("alpha", { userId: "u1", topK: 5 });
     const u2Hits = await provider.query("alpha", { userId: "u2", topK: 5 });
@@ -67,10 +61,7 @@ describe("NaiveRagProvider", () => {
     });
     await provider.init();
 
-    await provider.ingestTurns(
-      [{ role: "user", content: "alpha" }],
-      { userId: "u1" },
-    );
+    await provider.ingestTurns([{ role: "user", content: "alpha" }], { userId: "u1" });
     await provider.resetUser("u1");
     const hits = await provider.query("alpha", { userId: "u1", topK: 5 });
     expect(hits).toHaveLength(0);

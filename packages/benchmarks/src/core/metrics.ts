@@ -1,9 +1,5 @@
 import { cosineSimilarity } from "memorai";
-import type {
-  CategoryStats,
-  RunRecord,
-  RunResult,
-} from "./types.js";
+import type { CategoryStats, RunRecord, RunResult } from "./types.js";
 
 // ============================================================
 // Custom-suite types (kept verbatim from the previous benchmark
@@ -44,18 +40,12 @@ export function needleInTopK(
   return { found: bestSim >= threshold, rank: bestRank, similarity: bestSim };
 }
 
-export function multiNeedleRecall(
-  needleIds: string[],
-  retrievedIds: string[],
-): number {
+export function multiNeedleRecall(needleIds: string[], retrievedIds: string[]): number {
   const found = needleIds.filter((id) => retrievedIds.includes(id));
   return found.length / needleIds.length;
 }
 
-export function retrievalPrecision(
-  relevantIds: string[],
-  retrievedIds: string[],
-): number {
+export function retrievalPrecision(relevantIds: string[], retrievedIds: string[]): number {
   if (retrievedIds.length === 0) return 0;
   const found = retrievedIds.filter((id) => relevantIds.includes(id));
   return found.length / retrievedIds.length;
@@ -139,9 +129,10 @@ export function bleu1(prediction: string, gold: string): number {
     }
   }
   const precision = matched / predTokens.length;
-  const bp = predTokens.length >= goldTokens.length
-    ? 1
-    : Math.exp(1 - goldTokens.length / predTokens.length);
+  const bp =
+    predTokens.length >= goldTokens.length
+      ? 1
+      : Math.exp(1 - goldTokens.length / predTokens.length);
   return bp * precision;
 }
 
@@ -159,10 +150,8 @@ export function aggregateByCategory(records: RunRecord[]): CategoryStats[] {
   const result: CategoryStats[] = [];
   for (const [category, rs] of buckets) {
     const correct = rs.filter((r) => r.judgeLabel === "CORRECT").length;
-    const f1 =
-      rs.reduce((a, r) => a + f1Score(r.predicted, r.qa.gold), 0) / rs.length;
-    const bleu =
-      rs.reduce((a, r) => a + bleu1(r.predicted, r.qa.gold), 0) / rs.length;
+    const f1 = rs.reduce((a, r) => a + f1Score(r.predicted, r.qa.gold), 0) / rs.length;
+    const bleu = rs.reduce((a, r) => a + bleu1(r.predicted, r.qa.gold), 0) / rs.length;
     result.push({
       category,
       count: rs.length,
@@ -179,10 +168,7 @@ export function aggregateByCategory(records: RunRecord[]): CategoryStats[] {
 export function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
-  const idx = Math.min(
-    sorted.length - 1,
-    Math.floor((p / 100) * sorted.length),
-  );
+  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
   return sorted[idx];
 }
 

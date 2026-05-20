@@ -43,15 +43,9 @@ export async function runNeedleHaystackBenchmark(): Promise<BenchmarkResult> {
     const needleText = needle.annotations?.summary ?? needle.raw.text ?? "";
     const needleEmb = await ollamaEmbed(needleText);
     const retrievedEmb = await Promise.all(
-      result.nodes.map((n) =>
-        ollamaEmbed(n.annotations.summary ?? n.raw.text ?? ""),
-      ),
+      result.nodes.map((n) => ollamaEmbed(n.annotations.summary ?? n.raw.text ?? "")),
     );
-    const { found, rank, similarity } = needleInTopK(
-      needleEmb,
-      retrievedEmb,
-      THRESHOLD,
-    );
+    const { found, rank, similarity } = needleInTopK(needleEmb, retrievedEmb, THRESHOLD);
 
     const score = found ? 1 : similarity / THRESHOLD;
     scores.push(score);

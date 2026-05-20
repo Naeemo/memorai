@@ -37,9 +37,7 @@ const CATEGORY_NAMES: Record<number, string> = {
 
 export const DEFAULT_PATH = "datasets/locomo/locomo10.json";
 
-export async function loadLoCoMo(
-  path: string = DEFAULT_PATH,
-): Promise<Conversation[]> {
+export async function loadLoCoMo(path: string = DEFAULT_PATH): Promise<Conversation[]> {
   const abs = resolve(process.cwd(), path);
   const raw = await readFile(abs, "utf8");
   const items = JSON.parse(raw) as LoCoMoItem[];

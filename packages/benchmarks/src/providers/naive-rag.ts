@@ -4,12 +4,7 @@ import {
   cosineSimilarity,
   type EmbeddingService,
 } from "memorai";
-import type {
-  IngestOptions,
-  MemoryHit,
-  MemoryProvider,
-  QueryOptions,
-} from "../core/provider.js";
+import type { IngestOptions, MemoryHit, MemoryProvider, QueryOptions } from "../core/provider.js";
 import type { Turn } from "../core/types.js";
 
 interface Entry {

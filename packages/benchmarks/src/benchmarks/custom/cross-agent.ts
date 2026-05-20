@@ -76,13 +76,10 @@ export async function runCrossAgentBenchmark(): Promise<BenchmarkResult> {
     const latency = performance.now() - start;
     latencies.push(latency);
 
-    const ownMemories = result.nodes.filter(
-      (n) => n.meta.sourceAgent === agent,
-    );
+    const ownMemories = result.nodes.filter((n) => n.meta.sourceAgent === agent);
     const totalRetrieved = result.nodes.length;
 
-    const isolationScore =
-      totalRetrieved > 0 ? ownMemories.length / totalRetrieved : 1;
+    const isolationScore = totalRetrieved > 0 ? ownMemories.length / totalRetrieved : 1;
     isolationScores.push(isolationScore);
 
     await memory.close();

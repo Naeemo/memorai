@@ -1,8 +1,8 @@
 {
   "name": "@memorai/benchmarks",
   "version": "0.0.0",
-  "description": "Benchmark harness for Memorai against public agent-memory datasets (LoCoMo, LongMemEval, ConvoMem) and custom synthetic tests",
   "private": true,
+  "description": "Benchmark harness for Memorai against public agent-memory datasets (LoCoMo, LongMemEval, ConvoMem) and custom synthetic tests",
   "license": "MIT",
   "type": "module",
   "scripts": {

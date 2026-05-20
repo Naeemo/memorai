@@ -68,8 +68,7 @@ const DISTRACTOR_TEMPLATES = [
 
 const NEEDLE_TEMPLATES = [
   {
-    summary:
-      "CRITICAL: The secret project codename is ORION and the launch date is March 15th",
+    summary: "CRITICAL: The secret project codename is ORION and the launch date is March 15th",
     query: "What is the secret project codename and launch date?",
     tags: ["secret", "project", "orion", "march"],
   },
@@ -80,14 +79,12 @@ const NEEDLE_TEMPLATES = [
     tags: ["database", "password", "backup", "security"],
   },
   {
-    summary:
-      "CRITICAL: The CEO announced the acquisition of NexGen Corp for 450 million dollars",
+    summary: "CRITICAL: The CEO announced the acquisition of NexGen Corp for 450 million dollars",
     query: "Which company did the CEO announce an acquisition for and at what price?",
     tags: ["ceo", "acquisition", "nexgen", "announcement"],
   },
   {
-    summary:
-      "CRITICAL: Emergency contact for the server room is Dr. Elena Voss at extension 7734",
+    summary: "CRITICAL: Emergency contact for the server room is Dr. Elena Voss at extension 7734",
     query: "Who is the emergency contact for the server room and what is their extension?",
     tags: ["emergency", "server", "contact", "elena"],
   },
@@ -129,10 +126,7 @@ const NEEDLE_TEMPLATES = [
   },
 ];
 
-export function generateHaystack(
-  count: number,
-  distractorRatio = 0.3,
-): WritePayload[] {
+export function generateHaystack(count: number, distractorRatio = 0.3): WritePayload[] {
   const payloads: WritePayload[] = [];
   const distractorCount = Math.floor(count * distractorRatio);
   const regularCount = count - distractorCount;
@@ -180,9 +174,7 @@ export function generateHaystack(
   return payloads;
 }
 
-export function generateNeedles(
-  count: number,
-): Array<WritePayload & { query: string }> {
+export function generateNeedles(count: number): Array<WritePayload & { query: string }> {
   const results: Array<WritePayload & { query: string }> = [];
   for (let i = 0; i < count; i++) {
     const template = NEEDLE_TEMPLATES[i % NEEDLE_TEMPLATES.length];

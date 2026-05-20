@@ -3,11 +3,7 @@ import type { MemoryProvider } from "./provider.js";
 import { generateAnswer } from "./llm/answerer.js";
 import { judgeBinary, type JudgeLabel } from "./llm/judge.js";
 import { pickAnswererBackend, pickJudgeBackend } from "./llm/pick.js";
-import {
-  aggregateByCategory,
-  formatPublicMarkdown,
-  percentile,
-} from "./metrics.js";
+import { aggregateByCategory, formatPublicMarkdown, percentile } from "./metrics.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -63,8 +59,7 @@ export async function runSuite(opts: RunOptions): Promise<RunResult> {
   const buildResult = (conversationsCompleted: number): RunResult => {
     const correct = records.filter((r) => r.judgeLabel === "CORRECT").length;
     const latencies = records.map((r) => r.latencyMs);
-    const avgLatencyMs =
-      latencies.reduce((a, b) => a + b, 0) / Math.max(1, latencies.length);
+    const avgLatencyMs = latencies.reduce((a, b) => a + b, 0) / Math.max(1, latencies.length);
     const p95LatencyMs = percentile(latencies, 95);
     const byCategory = aggregateByCategory(records);
     return {
@@ -117,12 +112,7 @@ export async function runSuite(opts: RunOptions): Promise<RunResult> {
         const predicted = await generateAnswer(answererBackend, qa.question, hits);
         let judgeLabel: JudgeLabel;
         try {
-          judgeLabel = await judgeBinary(
-            judgeBackend,
-            qa.question,
-            qa.gold,
-            predicted,
-          );
+          judgeLabel = await judgeBinary(judgeBackend, qa.question, qa.gold, predicted);
         } catch (err) {
           onProgress(`  judge failed on qa ${qa.id}: ${String(err)}`);
           judgeLabel = "INCORRECT";

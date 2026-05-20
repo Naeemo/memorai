@@ -51,19 +51,11 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
     });
     baselineLatencies.push(performance.now() - start);
 
-    const needleEmb = await ollamaEmbed(
-      needle.annotations?.summary ?? needle.raw.text ?? "",
-    );
+    const needleEmb = await ollamaEmbed(needle.annotations?.summary ?? needle.raw.text ?? "");
     const retrievedEmb = await Promise.all(
-      result.nodes.map((n) =>
-        ollamaEmbed(n.annotations.summary ?? n.raw.text ?? ""),
-      ),
+      result.nodes.map((n) => ollamaEmbed(n.annotations.summary ?? n.raw.text ?? "")),
     );
-    const { found, similarity } = needleInTopK(
-      needleEmb,
-      retrievedEmb,
-      THRESHOLD,
-    );
+    const { found, similarity } = needleInTopK(needleEmb, retrievedEmb, THRESHOLD);
     baselineScores.push(found ? 1 : similarity / THRESHOLD);
   }
 
@@ -85,26 +77,17 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
     });
     evolvedLatencies.push(performance.now() - start);
 
-    const needleEmb = await ollamaEmbed(
-      needle.annotations?.summary ?? needle.raw.text ?? "",
-    );
+    const needleEmb = await ollamaEmbed(needle.annotations?.summary ?? needle.raw.text ?? "");
     const retrievedEmb = await Promise.all(
-      result.nodes.map((n) =>
-        ollamaEmbed(n.annotations.summary ?? n.raw.text ?? ""),
-      ),
+      result.nodes.map((n) => ollamaEmbed(n.annotations.summary ?? n.raw.text ?? "")),
     );
-    const { found, similarity } = needleInTopK(
-      needleEmb,
-      retrievedEmb,
-      THRESHOLD,
-    );
+    const { found, similarity } = needleInTopK(needleEmb, retrievedEmb, THRESHOLD);
     evolvedScores.push(found ? 1 : similarity / THRESHOLD);
   }
 
   let preservationSum = 0;
   for (let i = 0; i < NEEDLE_COUNT; i++) {
-    preservationSum +=
-      baselineScores[i] > 0 ? evolvedScores[i] / baselineScores[i] : 1;
+    preservationSum += baselineScores[i] > 0 ? evolvedScores[i] / baselineScores[i] : 1;
   }
   const preservationRatio = preservationSum / NEEDLE_COUNT;
 
@@ -114,15 +97,13 @@ export async function runEvolutionBenchmark(): Promise<BenchmarkResult> {
     name: "Hierarchical Evolution Preservation",
     score: Math.min(1, preservationRatio),
     latencyMs:
-      evolveLatency +
-      evolvedLatencies.reduce((a, b) => a + b, 0) / evolvedLatencies.length,
+      evolveLatency + evolvedLatencies.reduce((a, b) => a + b, 0) / evolvedLatencies.length,
     details: {
       baseline_score: baselineScores.reduce((a, b) => a + b, 0) / baselineScores.length,
       evolved_score: evolvedScores.reduce((a, b) => a + b, 0) / evolvedScores.length,
       preservation_ratio: preservationRatio,
       evolve_ms: evolveLatency,
-      baseline_latency_ms:
-        baselineLatencies.reduce((a, b) => a + b, 0) / baselineLatencies.length,
+      baseline_latency_ms: baselineLatencies.reduce((a, b) => a + b, 0) / baselineLatencies.length,
     },
   };
 }

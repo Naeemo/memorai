@@ -36,19 +36,14 @@ export async function loadLongMemEval(
   return items.map(normalizeLongMemEvalItem);
 }
 
-export function normalizeLongMemEvalItem(
-  item: LongMemEvalItem,
-): Conversation {
+export function normalizeLongMemEvalItem(item: LongMemEvalItem): Conversation {
   const sessions: Turn[][] = item.haystack_sessions.map((session, i) => {
     const dateStr = item.haystack_dates?.[i];
     const tsBase = dateStr ? Date.parse(dateStr) : undefined;
     return session.map((m, j) => ({
       role: m.role,
       content: m.content,
-      timestampMs:
-        tsBase !== undefined && !Number.isNaN(tsBase)
-          ? tsBase + j * 1000
-          : undefined,
+      timestampMs: tsBase !== undefined && !Number.isNaN(tsBase) ? tsBase + j * 1000 : undefined,
     }));
   });
 
