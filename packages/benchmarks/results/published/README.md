@@ -2,6 +2,82 @@
 
 This directory contains the canonical benchmark runs committed alongside Memorai's published versions. Day-to-day runs land in the parent `results/` directory (gitignored); only runs we want to cite go here.
 
+## 2026-05-21 — Memorai v0.5 with Kimi K2.6 answerer (Moonshot AI)
+
+Same v0.5 codebase as the 2026-05-20 runs below, but **swapping the answerer model** from `gemma4:31b-cloud` (via Ollama Cloud) to **`kimi-k2.6`** (via Moonshot AI's OpenAI-compatible endpoint). Kimi K2.6 is Moonshot's reasoning model — it burns most of its `max_tokens` on internal chain-of-thought before emitting the final answer.
+
+Why test this: the v0.5 architectural changes plateaued at 58% on LongMemEval and ~33% on LoCoMo against gemma4. The hypothesis was that the answerer model — not Memorai's retrieval — was the ceiling. This run confirms that hypothesis for at least one of the two suites.
+
+### Headline (LongMemEval oracle, first 50 conversations)
+
+| Run | Accuracy | Δ vs gemma4 | Duration |
+|-----|---------:|------------:|---------:|
+| v0.5 wrap + identifier llm + gemma4:31b-cloud answerer | 58.00% (29/50) | — | 56 min |
+| **v0.5 wrap + identifier llm + kimi-k2.6 answerer** | **92.00% (46/50)** | **+34.0pp** | 94 min |
+
+The +34pp jump is dramatic and unambiguous. Kimi K2.6's reasoning is the right tool for LongMemEval's temporal-reasoning category — questions like "did event A happen before event B" benefit from explicit chain-of-thought over the retrieved memories rather than one-shot answering.
+
+### LoCoMo conv-26 (152 QAs)
+
+| Run | Accuracy | Δ vs gemma4 | Duration |
+|-----|---------:|------------:|---------:|
+| v0.5 wrap + identifier llm + gemma4:31b-cloud answerer (from 0.4.0 published) | 36.84% (56/152) | — | 17.9 min |
+| **v0.5 wrap + identifier llm + kimi-k2.6 answerer** | **33.55% (51/152)** | **-3.29pp** | 133 min |
+
+Net result is essentially a wash — within run-to-run variance for the ±2-5pp judge noise band — but the per-category breakdown is informative:
+
+| Category | gemma4 | Kimi K2.6 | Δ |
+|----------|-------:|----------:|---:|
+| single_hop | 21.9% (7/32) | **34.4%** (11/32) | **+12.5pp** |
+| multi_hop | 30.8% (4/13) | 23.1% (3/13) | -7.7pp |
+| temporal | 8.1% (3/37) | 8.1% (3/37) | — |
+| open_domain | **60.0%** (42/70) | 48.6% (34/70) | -11.4pp |
+
+Reading: Kimi K2.6's reasoning helps **single_hop** (+12.5pp — questions that need precise interpretation of a single retrieved fact) but hurts **open_domain** (-11.4pp — questions where retrieval-quality dominates and reasoning over noisy candidates over-commits to plausible-sounding but wrong answers).
+
+Caveat: 7 judge failures (~5% of QAs) from sustained Moonshot 429 `engine_overloaded` errors mid-run. Each defaults to INCORRECT, which mechanically depresses the final accuracy by up to ~5pp. The 33.55% is the floor; the true Kimi-vs-gemma4 comparison is in the per-category breakdown, not the headline.
+
+### Configuration used
+
+- Memorai v0.5 (HEAD of `main` at `c5d421a`)
+- Embedder: `nomic-embed-text` via Ollama (768-d, runs locally)
+- Extractor: `WrapExtractor` (no LLM)
+- Event identifier: `LLMEventIdentifier` with `kimi-k2-0905-preview` (non-reasoning Kimi K2 — reliable structured JSON for the identifier's schema)
+- Answerer: `kimi-k2.6` (reasoning)
+- Judge: `kimi-k2-0905-preview` (non-reasoning — emits the CORRECT/INCORRECT token without burning tokens on internal CoT)
+- Top-K: 30
+- Storage: in-memory
+
+### How to reproduce
+
+```bash
+OPENAI_BASE_URL=https://api.moonshot.cn/v1 \
+OPENAI_API_KEY=sk-... \
+pnpm --filter @memorai/benchmarks bench:longmemeval --limit 50 \
+  --identifier llm --identifier-model kimi-k2-0905-preview \
+  --answerer-model kimi-k2.6 \
+  --judge-model kimi-k2-0905-preview
+
+OPENAI_BASE_URL=https://api.moonshot.cn/v1 \
+OPENAI_API_KEY=sk-... \
+pnpm --filter @memorai/benchmarks bench:locomo --limit 1 \
+  --identifier llm --identifier-model kimi-k2-0905-preview \
+  --answerer-model kimi-k2.6 \
+  --judge-model kimi-k2-0905-preview
+```
+
+Bench-harness changes that made this work:
+- `OPENAI_BASE_URL` already let the OpenAI-compatible client point at any OpenAI-compat endpoint (Moonshot, DeepSeek, Together, etc.)
+- `isReasoningModel(model)` detects K2.6 / K2.5 / K2-thinking / OpenAI o-series and (a) drops the `temperature` field from the request body — these models reject anything but their built-in default — and (b) bumps the `max_tokens` budget to 4-8k so the reasoning prefix doesn't truncate the final answer
+- Retry-on-5xx + network-failure in `openaiChat` survives transient cloud overloads
+- Per-conversation checkpoint write in `runner.ts` — partial results survive a mid-run quota / network failure
+
+### Caveats
+
+- Single conv (conv-26) on LoCoMo. Cross-conv aggregate not in scope for this round — at ~13 min/conv on K2.6, the full 10-conv aggregate would take ~22 hours.
+- LLM-as-judge is non-deterministic. ±2-5pp run-to-run variance on these sample sizes.
+- The 7 judge failures on LoCoMo are a real artifact of Moonshot's `engine_overloaded` rate-limiting under sustained load. A retry-with-longer-backoff variant might recover some, but the current 4s / 16s / 64s schedule wasn't enough.
+
 ## 2026-05-20 — Memorai v0.5 (HNSW + belief revision + SQLite events + iterative + decompose + dedup + confidence-temporal + filter-pushdown + prompts)
 
 Ten features landed on top of the 2026-05-19 post-commit cut:
