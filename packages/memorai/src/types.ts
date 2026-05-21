@@ -254,6 +254,9 @@ export interface MemoryEvent {
   /** IDs of MemoryEvents this one supersedes (typically when this is a state
    *  event that updates an older state). */
   supersedes?: string[];
+  /** IDs of semantically or temporally related MemoryEvents. When one event
+   *  surfaces, its related events are also candidates for recall. */
+  relatedEventIds?: string[];
   /** IDs of raw MemoryNodes this event was identified from. */
   sourceNodeIds: string[];
   /** Multi-tenant scope. Mirrors the originating raw node's userId. */
@@ -639,6 +642,10 @@ export interface IdentifiedEvent {
   /** When this is a state event that replaces older ones, the identifier
    *  populates this list so the pipeline can mark them invalidated. */
   supersedes?: string[];
+  /** IDs of existing MemoryEvents that are semantically or temporally
+   *  related to this new event. The pipeline links them for cross-event
+   *  recall (e.g. a "meeting" event links to participant state events). */
+  relatedEventIds?: string[];
   confidence?: number;
 }
 

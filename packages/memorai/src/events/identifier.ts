@@ -35,6 +35,7 @@ Output JSON array. Each element:
   "occurredAtNodeId": "<id of the node whose timestamp the event anchors to>",
   "sourceNodeIds": ["<id>", ...],
   "supersedesIds": ["<existing-event-id>", ...],  // STATE only, and only if truly conflicting
+  "relatedEventIds": ["<existing-event-id>", ...],  // events semantically/temporally linked
   "confidence": <number 0..1>
 }
 
@@ -47,6 +48,10 @@ Rules:
 - Only set "supersedesIds" when the new state strictly conflicts with the old
   (same participants + topic, contradictory assertion). Do NOT supersede when
   the new event merely adds detail, refines, or is from a different domain.
+- "relatedEventIds" links this event to existing related events. Use it when
+  the new event is about the same meeting, project, or participant as an
+  existing event. Example: a new "meeting" event should link to existing
+  state events about its participants.
 - "confidence" reflects how directly the event is stated. 0.9+ for explicit
   declarations ("I prefer X"), 0.6 for implied ("I always order X"), 0.3
   for weakly inferred.
@@ -80,6 +85,7 @@ interface RawIdentifiedEventJson {
   occurredAtNodeId?: string;
   sourceNodeIds?: string[];
   supersedesIds?: string[];
+  relatedEventIds?: string[];
   confidence?: number;
 }
 
@@ -204,6 +210,10 @@ export class LLMEventIdentifier implements EventIdentifier {
           ? item.supersedesIds.filter((id): id is string => typeof id === "string")
           : undefined;
 
+      const relatedEventIds = Array.isArray(item.relatedEventIds)
+        ? item.relatedEventIds.filter((id): id is string => typeof id === "string")
+        : undefined;
+
       identified.push({
         kind,
         description,
@@ -212,6 +222,7 @@ export class LLMEventIdentifier implements EventIdentifier {
         occurredAt: anchorNode.timestamp,
         sourceNodeIds,
         supersedes,
+        relatedEventIds,
         confidence: clampConfidence(item.confidence),
       });
     }

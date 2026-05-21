@@ -488,7 +488,37 @@ export class Memorai {
     // merge pathway / sourceNodeIds provenance from the dropped twin.
     candidates = this.dedupeEventCandidates(candidates);
 
-    const sorted = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
+    let sorted = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
+
+    // Surface related events: for each top-K event, pull in its
+    // `relatedEventIds` so multi-hop queries find connected context.
+    // Related events are scored slightly below their referrer to preserve
+    // rank order, and deduped so an event isn't duplicated.
+    const relatedIds = new Set<string>();
+    const relatedEntries: typeof sorted = [];
+    for (const entry of sorted) {
+      for (const rid of entry.event.relatedEventIds ?? []) {
+        if (relatedIds.has(rid)) continue;
+        if (fused.has(rid)) continue; // already in candidate set
+        relatedIds.add(rid);
+        const related = await this.eventStore.getEvent(rid);
+        if (!related) continue;
+        if (excludeInvalidated && related.invalidatedAt !== undefined) continue;
+        if (opts.timeRange) {
+          const { start, end } = opts.timeRange;
+          if (related.occurredAt < start || related.occurredAt > end) continue;
+        }
+        relatedEntries.push({
+          event: related,
+          score: entry.score * 0.85, // slight penalty vs direct hit
+          pathways: new Set([...entry.pathways, "event:related"]),
+          pathwayScores: { ...entry.pathwayScores, "event:related": entry.score * 0.85 },
+        });
+      }
+    }
+    if (relatedEntries.length > 0) {
+      sorted = sorted.concat(relatedEntries).sort((a, b) => b.score - a.score).slice(0, topK);
+    }
 
     // Touch lastAccessed for surfaced events. Fire-and-forget; failures
     // here should not block recall.
@@ -1376,6 +1406,19 @@ export class Memorai {
         accessCount: 0,
       },
     };
+
+    if (ident.relatedEventIds && ident.relatedEventIds.length > 0) {
+      const validRelated: string[] = [];
+      for (const relatedId of ident.relatedEventIds) {
+        const related = await this.eventStore.getEvent(relatedId);
+        if (!related) continue;
+        if (related.userId !== event.userId) continue;
+        validRelated.push(relatedId);
+      }
+      if (validRelated.length > 0) {
+        event.relatedEventIds = validRelated;
+      }
+    }
 
     if (ident.kind === "state" && ident.supersedes && ident.supersedes.length > 0) {
       const validSupersedes: string[] = [];
