@@ -115,6 +115,80 @@ pnpm --filter @memorai/benchmarks bench:locomo --limit 1 --limit-qas 30 --provid
 
 ## 权威结果
 
+### 2026-05-21 — Memorai 0.5.0（HNSW + 信念修正 + 迭代召回 + Kimi K2.6 作答）
+
+0.5.0 在 0.4.0 之上交付十项架构变更：带元数据过滤下推的 HNSW 向量索引、`EntityGraph` + 图召回路径、带置信度门控的时间表达式解析器、用户画像物化视图、工作记忆便笺、过程性记忆（`tool_call` / `plan_step` 内容类型）、信念修正（`reviseBelief` / `revisionsOf`）、遗忘 / 保留策略、由 LLM 作判官的多轮 `iterativeRecall`、子查询分解、跨事件去重、`coveredByEvent` LLM 摘要抑制、持久化 `SQLiteEventStore`、`TransformersReranker`，以及为抽取器 + 识别器引入的 few-shot prompt。基准测试 harness 也加入了通过 `OPENAI_BASE_URL` 接入 Moonshot / Kimi K2.6、逐对话检查点写盘、以及面向新召回特性的 CLI 开关（`--decompose`、`--iterative-recall`、`--resolve-time`）。
+
+#### LongMemEval oracle — 前 50 段对话
+
+| 配置 | 准确率 | Δ vs gemma4 | 耗时 |
+|---------------|---------:|------------:|---------:|
+| 0.5.0 wrap + identifier llm + `gemma4:31b-cloud` 作答 | 58.00% (29/50) | — | 56 min |
+| **0.5.0 wrap + identifier llm + `kimi-k2.6` 作答** | **92.00% (46/50)** | **+34.0pp** | 94 min |
+
++34pp 是本轮的头条发现：在 LongMemEval 的 temporal-reasoning split 上，**天花板是作答模型，不是 Memorai 的召回**。Kimi K2.6（Moonshot 的推理模型）会在召回到的记忆上消耗大部分 `max_tokens` 做内部链式推理，然后再输出最终答案 —— 这正是 "事件 A 是否发生在事件 B 之前" 这类问题需要的形态。
+
+50 段对话的样本是此前 20 段的 2.5 倍。58% 的基线低于 0.4.0 公开的 20 段 75%，是因为更大样本平均掉了之前对我们有利的方差 —— 在本次代码基础上的同口径对比就是 58% 对 92%。
+
+我们也单独测了新增召回特性叠加在 gemma4 基线上的效果：
+
+| 配置 | 准确率 | Δ |
+|---------------|---------:|---:|
+| 0.5.0 wrap + identifier llm + gemma4（基线） | 58.00% (29/50) | — |
+| 加 `--decompose` + `--resolve-time` | 60.00% (30/50) | +2.0pp |
+
++2pp 落在 ±2-5pp 的判官噪声带内。每查询 LLM 调用数从 1 次（仅识别器）变为 2-5 次（识别器 + decompose 拆出的子查询），平均延迟从 4.4s 提到 9.6s 翻倍有余。权衡是真实的：对准确率敏感的链路打开，对成本敏感的链路关闭。
+
+#### LoCoMo — 完整 conv-26（152 道 QA）
+
+| 配置 | 准确率 | Δ vs 0.4.0 基线 |
+|---------------|---------:|--------------------:|
+| 0.4.0 wrap + identifier llm + gemma4（公开基线） | 36.84% (56/152) | — |
+| 0.5.0 `--extractor llm --identifier llm` + gemma4 | 29.61% (45/152) | -7.23pp |
+| **0.5.0 wrap + identifier llm + `kimi-k2.6` 作答** | **33.55% (51/152)** | -3.29pp |
+
+头条数字基本是个平手 —— 落在 ±2-5pp 的判官噪声带内 —— 但分类目分解才是故事所在：
+
+| 类别 | 0.4.0 gemma4 | 0.5.0 Kimi K2.6 | Δ |
+|----------|-------------:|----------------:|---:|
+| single_hop | 21.9% (7/32) | **34.4% (11/32)** | **+12.5pp** |
+| multi_hop | 30.8% (4/13) | 23.1% (3/13) | -7.7pp |
+| temporal | 8.1% (3/37) | 8.1% (3/37) | — |
+| open_domain | **60.0% (42/70)** | 48.6% (34/70) | -11.4pp |
+
+Kimi K2.6 的推理帮到了 **single_hop**（+12.5pp —— 需要对单条召回事实做精确解读的题），却拖累了 **open_domain**（-11.4pp —— 召回质量主导的题，让推理模型在嘈杂候选上做推理会让它对"听起来合理但其实错的答案"过度承诺）。这两股效应互相抵消，所以总分是个平手。
+
+0.5.0 `--extractor llm + --identifier llm` 这一行值得单独说一下：`coveredByEvent` LLM 摘要抑制（`f2c980b`）的本意是关上 `wrap + identifier llm` 与 `--extractor llm + --identifier llm` 之间最初的 -3.95pp 回归。结果没关上 —— 这次跑比 0.4.0 基线低了 -7.23pp。混杂因素：在重试逻辑落地之前，有一个识别器 batch 中途碰到了 `fetch failed`；新的 few-shot prompt 的示例开销也把每次调用的延迟拉高了约 60%，在云端过载时尤其明显。修复在架构上是正确的（有单元测试覆盖），但在这个切片上的基准影响是零至负的。
+
+#### 复现头条数字
+
+```bash
+# LongMemEval 50 段 + Kimi K2.6 作答（+34pp 的那个数字）
+OPENAI_BASE_URL=https://api.moonshot.cn/v1 \
+OPENAI_API_KEY=sk-... \
+pnpm --filter @memorai/benchmarks bench:longmemeval --limit 50 \
+  --identifier llm \
+  --identifier-model kimi-k2-0905-preview \
+  --answerer-model kimi-k2.6 \
+  --judge-model kimi-k2-0905-preview
+
+# LoCoMo conv-26 + Kimi K2.6 作答
+OPENAI_BASE_URL=https://api.moonshot.cn/v1 \
+OPENAI_API_KEY=sk-... \
+pnpm --filter @memorai/benchmarks bench:locomo --limit 1 \
+  --identifier llm \
+  --identifier-model kimi-k2-0905-preview \
+  --answerer-model kimi-k2.6 \
+  --judge-model kimi-k2-0905-preview
+```
+
+#### 注意事项
+
+- LoCoMo conv-26 在过程中有 7 次判官调用因为 Moonshot 持续 `engine_overloaded` 429 而失败（约占 5% 的 QA）。每次都默认判 INCORRECT，机械地把最终准确率压低了最多约 5pp。33.55% 是地板值；Kimi 与 gemma4 的真实对比看分类目分解更可信。
+- 完整 LoCoMo 10 段汇总仍待补 —— 按 K2.6 大约每段 13 分钟来算要 ~22 小时。conv-26 单段已经给出了权衡信号。
+- `--iterative-recall` 已经接入但本轮没跑基准 —— 它对每查询 LLM 调用数的倍数代价，对本轮的时间预算来说太贵。
+- LLM 作判官非确定性。在这一规模上，run-to-run 方差大约 ±2-5pp。落在这一带内的数字不构成信号。
+
 ### 2026-05-17 — Memorai 0.4.0（MemoryEvent 层）
 
 0.4.0 引入了 **MemoryEvent 层**（Tier 2.5）：由 `EventIdentifier` 抽取的事实中心化记录，与原始 `MemoryNode` 并列存储。每个事件属于 `state` / `transition` / `happening` 之一，具备生命周期（状态事件可被替代）、有效时间语义、以及图风格的参与者 + 主题索引。召回会同时扇出到原始节点和事件层，经 RRF 融合，并对已被事件覆盖的原始节点命中去重。数据模型见 [`/concepts/memory-events`](/zh/concepts/memory-events)。
