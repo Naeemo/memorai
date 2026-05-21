@@ -158,6 +158,15 @@ export class IndexedDBAdapter implements StorageAdapter {
     return this.applyOpts(await this.scanIndex("target", target), opts);
   }
 
+  async queryByTemporalAnchor(name: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    const normalized = name.toLowerCase().trim();
+    const all = await this.listAll();
+    const filtered = all.filter((n) =>
+      n.annotations.temporalAnchors?.some((a) => a.name.toLowerCase().trim() === normalized),
+    );
+    return this.applyOpts(filtered, opts);
+  }
+
   async queryByText(text: string, opts?: QueryOpts & { limit?: number }): Promise<MemoryNode[]> {
     if (!this.bm25Hydrated) {
       const all = await this.listAll();

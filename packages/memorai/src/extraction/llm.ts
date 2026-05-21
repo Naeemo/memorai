@@ -4,6 +4,7 @@ import type {
   Extractor,
   KnowledgeTriple,
   LLMService,
+  TemporalAnchor,
   WritePayload,
 } from "../types.js";
 import { buildBaseWrite, rawIndexableText } from "./shared.js";
@@ -16,6 +17,7 @@ interface LLMExtractionOutput {
   salience: number;
   description?: string;
   triples?: KnowledgeTriple[];
+  temporalAnchors?: TemporalAnchor[];
 }
 
 const EXTRACTOR_VERSION = "llm-v1";
@@ -82,6 +84,9 @@ export class LLMExtractor implements Extractor {
       if (parsed.triples && parsed.triples.length > 0) {
         annotations.triples = parsed.triples;
       }
+      if (parsed.temporalAnchors && parsed.temporalAnchors.length > 0) {
+        annotations.temporalAnchors = parsed.temporalAnchors;
+      }
 
       base.annotations = annotations;
       base.annotationVersion = EXTRACTOR_VERSION;
@@ -110,6 +115,9 @@ Output schema (strict JSON, no prose):
   "description": "<optional longer expansion; omit if summary is sufficient>",
   "triples": [
     {"subject": "<entity>", "predicate": "<relation>", "object": "<entity or value>", "confidence": <number 0..1>}
+  ],
+  "temporalAnchors": [
+    {"name": "canonical-anchor-name", "type": "point|range|deadline|milestone", "label": "exact phrase from text", "confidence": <number 0..1>}
   ]
 }
 
@@ -119,6 +127,7 @@ Guidance:
 - "tags" should be lowercase canonical entity / topic tokens — match the casing in "triples" so retrieval can cross-reference
 - "salience" is the agent's importance estimate: 0.9 for decisions / commitments / preferences that persist; 0.5 for routine facts; 0.2 for filler / acknowledgments
 - "triples" capture structured knowledge: (caroline, researched, "adoption agencies"), (caroline, attended_on, "2023-05-07"). Include "confidence" — lower when the relation is implied rather than stated
+- "temporalAnchors" identify named time references in the text that users might later query relative to: "before the migration", "after Alice arrived", "during the Q3 review". "name" should be a short canonical slug (lowercase, no spaces), "type" should be one of: point (instant), range (duration), deadline (fixed cutoff), milestone (significant event). Only include anchors that are clearly referenced in the text — do NOT invent them
 - omit a field if you'd be guessing; do NOT invent participants, dates, or relations not grounded in the event content
 
 EXAMPLE 1 — input:
@@ -188,6 +197,7 @@ function parseOutput(raw: string): LLMExtractionOutput {
           salience: clampSalience(obj.salience),
           description: typeof obj.description === "string" ? obj.description : undefined,
           triples: parseTriples(obj.triples),
+          temporalAnchors: parseTemporalAnchors(obj.temporalAnchors),
         };
       }
     } catch {
@@ -223,6 +233,41 @@ function parseTriples(v: unknown): KnowledgeTriple[] | undefined {
         triple.confidence = Math.max(0, Math.min(1, t.confidence));
       }
       out.push(triple);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function parseTemporalAnchors(v: unknown): TemporalAnchor[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: TemporalAnchor[] = [];
+  for (const item of v) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof (item as { name: unknown }).name === "string" &&
+      typeof (item as { label: unknown }).label === "string"
+    ) {
+      const a = item as {
+        name: string;
+        type?: unknown;
+        label: string;
+        confidence?: unknown;
+      };
+      const type =
+        a.type === "point" || a.type === "range" || a.type === "recurring" || a.type === "deadline" || a.type === "milestone"
+          ? a.type
+          : "point";
+      const confidence =
+        typeof a.confidence === "number" && Number.isFinite(a.confidence)
+          ? Math.max(0, Math.min(1, a.confidence))
+          : 0.7;
+      out.push({
+        name: a.name.toLowerCase().trim().replace(/\s+/g, "-"),
+        type,
+        label: a.label,
+        confidence,
+      });
     }
   }
   return out.length > 0 ? out : undefined;

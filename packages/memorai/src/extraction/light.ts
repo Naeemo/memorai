@@ -1,4 +1,4 @@
-import type { Event, ExtractContext, Extractor, WritePayload } from "../types.js";
+import type { Event, ExtractContext, Extractor, TemporalAnchor, WritePayload } from "../types.js";
 import { buildBaseWrite, rawIndexableText } from "./shared.js";
 
 const EXTRACTOR_VERSION = "light-v1";
@@ -22,6 +22,10 @@ export class LightExtractor implements Extractor {
     const annotations = base.annotations ?? {};
     annotations.tags = mergeTags(annotations.tags, tags);
     annotations.salienceScore = salience;
+    const anchors = extractTemporalAnchors(text);
+    if (anchors.length > 0) {
+      annotations.temporalAnchors = anchors;
+    }
     base.annotations = annotations;
     base.annotationVersion = EXTRACTOR_VERSION;
     return [base];
@@ -109,4 +113,55 @@ const STOPWORD_CAPS = new Set([
 
 function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
+}
+
+/** Best-effort regex extraction of temporal anchors from text. */
+export function extractTemporalAnchors(text: string): TemporalAnchor[] {
+  if (!text) return [];
+  const anchors: TemporalAnchor[] = [];
+  const seen = new Set<string>();
+
+  // "before the X", "after the X", "during the X"
+  const relativeMatch = text.matchAll(
+    /\b(before|after|during)\s+(?:the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\b/gi,
+  );
+  for (const m of relativeMatch) {
+    const name = m[2].toLowerCase().trim().replace(/\s+/g, "-").replace(/^the-/, "");
+    if (seen.has(name)) continue;
+    seen.add(name);
+    anchors.push({
+      name,
+      type: "point",
+      label: `${m[1]} ${m[2]}`,
+      confidence: 0.5,
+    });
+  }
+
+  // "the X meeting", "the X deadline", "the X milestone"
+  const namedMatch = text.matchAll(
+    /\b(the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\s+(meeting|deadline|milestone|review|launch|migration)\b/gi,
+  );
+  for (const m of namedMatch) {
+    const qualifier = m[2]?.trim().toLowerCase();
+    const noun = m[3]?.toLowerCase();
+    const name = qualifier ? `${qualifier}-${noun}` : noun;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const typeMap: Record<string, TemporalAnchor["type"]> = {
+      deadline: "deadline",
+      milestone: "milestone",
+      meeting: "range",
+      review: "range",
+      launch: "point",
+      migration: "range",
+    };
+    anchors.push({
+      name,
+      type: typeMap[noun] ?? "point",
+      label: m[0],
+      confidence: 0.55,
+    });
+  }
+
+  return anchors;
 }

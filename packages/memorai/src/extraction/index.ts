@@ -1,5 +1,5 @@
 export { WrapExtractor } from "./wrap.js";
-export { LightExtractor, scoreSalience, extractTags } from "./light.js";
+export { LightExtractor, scoreSalience, extractTags, extractTemporalAnchors } from "./light.js";
 export { LLMExtractor } from "./llm.js";
 export {
   resolveTimeAnchor,

@@ -14,6 +14,7 @@ export class MemoryAdapter implements StorageAdapter {
   private userIndex = new Map<string, Set<string>>();
   private actorIndex = new Map<string, Set<string>>();
   private targetIndex = new Map<string, Set<string>>();
+  private temporalAnchorIndex = new Map<string, Set<string>>();
   private bm25 = new BM25Index();
 
   put(node: MemoryNode): Promise<void> {
@@ -85,6 +86,11 @@ export class MemoryAdapter implements StorageAdapter {
     return Promise.resolve(this.applyOpts(this.lookup(this.targetIndex, target), opts));
   }
 
+  queryByTemporalAnchor(name: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    const normalized = name.toLowerCase().trim();
+    return Promise.resolve(this.applyOpts(this.lookup(this.temporalAnchorIndex, normalized), opts));
+  }
+
   queryByText(text: string, opts?: QueryOpts & { limit?: number }): Promise<MemoryNode[]> {
     const limit = opts?.limit ?? 50;
     const hits = this.bm25.search(text, Math.max(limit, opts?.limit ?? 50));
@@ -114,6 +120,7 @@ export class MemoryAdapter implements StorageAdapter {
     this.userIndex.clear();
     this.actorIndex.clear();
     this.targetIndex.clear();
+    this.temporalAnchorIndex.clear();
     this.bm25.clear();
     return Promise.resolve();
   }
@@ -127,6 +134,11 @@ export class MemoryAdapter implements StorageAdapter {
     if (node.userId) addToIndex(this.userIndex, node.userId, node.id);
     if (node.actor) addToIndex(this.actorIndex, node.actor, node.id);
     if (node.target) addToIndex(this.targetIndex, node.target, node.id);
+    if (node.annotations.temporalAnchors) {
+      for (const a of node.annotations.temporalAnchors) {
+        addToIndex(this.temporalAnchorIndex, a.name.toLowerCase().trim(), node.id);
+      }
+    }
     this.bm25.put(node.id, this.indexableText(node));
   }
 
@@ -139,6 +151,11 @@ export class MemoryAdapter implements StorageAdapter {
     if (existing.userId) removeFromIndex(this.userIndex, existing.userId, id);
     if (existing.actor) removeFromIndex(this.actorIndex, existing.actor, id);
     if (existing.target) removeFromIndex(this.targetIndex, existing.target, id);
+    if (existing.annotations.temporalAnchors) {
+      for (const a of existing.annotations.temporalAnchors) {
+        removeFromIndex(this.temporalAnchorIndex, a.name.toLowerCase().trim(), id);
+      }
+    }
     this.bm25.remove(id);
   }
 

@@ -44,6 +44,7 @@ export class SQLiteAdapter implements StorageAdapter {
   private readonly byUserIdStmt: SQLiteStatement;
   private readonly byActorStmt: SQLiteStatement;
   private readonly byTargetStmt: SQLiteStatement;
+  private readonly byTemporalAnchorStmt: SQLiteStatement;
   private readonly childrenStmt: SQLiteStatement;
   private readonly parentStmt: SQLiteStatement;
   // In-memory BM25 index mirrors persisted nodes; rebuilt on construction.
@@ -83,6 +84,12 @@ export class SQLiteAdapter implements StorageAdapter {
     );
     this.byTargetStmt = db.prepare(
       `SELECT json FROM memories WHERE target = ? ORDER BY timestamp DESC`,
+    );
+    this.byTemporalAnchorStmt = db.prepare(
+      `SELECT m.json FROM memories m
+       INNER JOIN temporal_anchors ta ON m.id = ta.node_id
+       WHERE ta.name = ?
+       ORDER BY m.timestamp DESC`,
     );
     this.childrenStmt = db.prepare(
       `SELECT json FROM memories WHERE parentId = ? ORDER BY timestamp DESC`,
@@ -149,6 +156,23 @@ export class SQLiteAdapter implements StorageAdapter {
       .run();
 
     this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_tag ON tags(tag)`).run();
+
+    this.db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS temporal_anchors (
+          node_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT,
+          start INTEGER,
+          end INTEGER,
+          label TEXT,
+          confidence REAL,
+          FOREIGN KEY (node_id) REFERENCES memories(id) ON DELETE CASCADE
+        )`,
+      )
+      .run();
+    this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_temporal_name ON temporal_anchors(name)`).run();
+    this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_temporal_node ON temporal_anchors(node_id)`).run();
   }
 
   put(node: MemoryNode): Promise<void> {
@@ -166,6 +190,7 @@ export class SQLiteAdapter implements StorageAdapter {
       target: node.target ?? null,
     });
     this.syncTags(node);
+    this.syncTemporalAnchors(node);
     this.bm25.put(node.id, this.indexableText(node));
     return Promise.resolve();
   }
@@ -248,6 +273,16 @@ export class SQLiteAdapter implements StorageAdapter {
     );
   }
 
+  queryByTemporalAnchor(name: string, opts?: QueryOpts): Promise<MemoryNode[]> {
+    const rows = this.byTemporalAnchorStmt.all([name.toLowerCase().trim()]) as Array<{ json: string }>;
+    return Promise.resolve(
+      this.applyOpts(
+        rows.map((r) => this.parse(r.json)),
+        opts,
+      ),
+    );
+  }
+
   async queryByText(text: string, opts?: QueryOpts & { limit?: number }): Promise<MemoryNode[]> {
     const limit = opts?.limit ?? 50;
     const hits = this.bm25.search(text, Math.max(limit, 50));
@@ -293,6 +328,19 @@ export class SQLiteAdapter implements StorageAdapter {
     const insertTag = this.db.prepare(`INSERT OR IGNORE INTO tags (nodeId, tag) VALUES (?, ?)`);
     for (const tag of node.annotations.tags) {
       insertTag.run([node.id, tag]);
+    }
+  }
+
+  private syncTemporalAnchors(node: MemoryNode): void {
+    const deleteAnchors = this.db.prepare(`DELETE FROM temporal_anchors WHERE node_id = ?`);
+    deleteAnchors.run([node.id]);
+    if (!node.annotations.temporalAnchors || node.annotations.temporalAnchors.length === 0) return;
+    const insertAnchor = this.db.prepare(
+      `INSERT INTO temporal_anchors (node_id, name, type, start, end, label, confidence)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const a of node.annotations.temporalAnchors) {
+      insertAnchor.run([node.id, a.name.toLowerCase().trim(), a.type ?? null, a.start ?? null, a.end ?? null, a.label ?? null, a.confidence ?? null]);
     }
   }
 

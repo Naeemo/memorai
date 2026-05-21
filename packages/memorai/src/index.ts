@@ -231,7 +231,7 @@ export class Memorai {
     // `opts.resolveTime: true` when your queries use simple, concrete
     // time markers ("yesterday", "in March", "two weeks ago").
     const effectiveOpts =
-      opts.resolveTime && !opts.timeRange ? this.applyTemporalResolution(question, opts) : opts;
+      opts.resolveTime && !opts.timeRange ? await this.applyTemporalResolution(question, opts) : opts;
 
     const eventsEnabled = effectiveOpts.includeEvents !== false && this.identifier !== undefined;
 
@@ -300,20 +300,79 @@ export class Memorai {
    * original `opts` flows unchanged so retrieval can fall back to a global
    * search.
    */
-  private applyTemporalResolution(question: string, opts: RecallOptions): RecallOptions {
+  private async applyTemporalResolution(question: string, opts: RecallOptions): Promise<RecallOptions> {
+    // Tier 1: heuristic absolute-time resolution (yesterday, last week, etc.)
     const resolved = resolveTimeExpression(question);
-    if (!resolved) return opts;
-    // Drop low-confidence matches even when the caller opted in — they're
-    // too ambiguous to safely anchor a query on. This was the source of
-    // the -10pp regression that drove the original opt-in fix; gating on
-    // confidence lets users keep `resolveTime: true` on without that
-    // class of misfire.
-    if (resolved.confidence === "low") return opts;
-    return {
-      ...opts,
-      timeRange: { start: resolved.start, end: resolved.end },
-      strategy: opts.strategy ?? "temporal",
-    };
+    if (resolved) {
+      // Drop low-confidence matches even when the caller opted in.
+      if (resolved.confidence === "low") return opts;
+      return {
+        ...opts,
+        timeRange: { start: resolved.start, end: resolved.end },
+        strategy: opts.strategy ?? "temporal",
+      };
+    }
+
+    // Tier 2: relative-to-anchor resolution ("before the migration", "after Alice arrived")
+    const anchorResolved = await this.resolveRelativeToAnchor(question);
+    if (anchorResolved) {
+      return {
+        ...opts,
+        timeRange: anchorResolved,
+        strategy: opts.strategy ?? "temporal",
+      };
+    }
+
+    return opts;
+  }
+
+  /**
+   * Try to resolve relative time expressions that reference named temporal
+   * anchors ("before the migration", "after Alice arrived", "during the meeting").
+   * Returns a timeRange or null when no matching anchor is found.
+   */
+  private async resolveRelativeToAnchor(
+    question: string,
+  ): Promise<{ start: number; end: number } | null> {
+    const lower = question.toLowerCase();
+
+    // Patterns: "before X", "after X", "during X"
+    const relativeMatch = lower.match(/\b(before|after|during)\s+(?:the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\b/);
+    if (!relativeMatch) return null;
+
+    const relation = relativeMatch[1] as "before" | "after" | "during";
+    const anchorName = relativeMatch[2].toLowerCase().trim().replace(/\s+/g, "-").replace(/^the-/, "");
+
+    const nodes = await this.config.storage.queryByTemporalAnchor(anchorName, { limit: 10 });
+    if (nodes.length === 0) return null;
+
+    // Pick the highest-confidence anchor
+    let bestAnchor: { start?: number; end?: number; confidence: number } | null = null;
+    for (const n of nodes) {
+      for (const a of n.annotations.temporalAnchors ?? []) {
+        if (a.name === anchorName || a.name.includes(anchorName)) {
+          if (!bestAnchor || a.confidence > bestAnchor.confidence) {
+            bestAnchor = a;
+          }
+        }
+      }
+    }
+    if (!bestAnchor) return null;
+
+    const now = Date.now();
+    const anchorStart = bestAnchor.start ?? now;
+    const anchorEnd = bestAnchor.end ?? anchorStart;
+
+    switch (relation) {
+      case "before":
+        return { start: 0, end: anchorStart };
+      case "after":
+        return { start: anchorEnd, end: now };
+      case "during":
+        return { start: anchorStart, end: anchorEnd };
+      default:
+        return null;
+    }
   }
 
   private async recallNodes(
@@ -2247,6 +2306,7 @@ export {
   resolveTimeAnchor,
   extractTags,
   scoreSalience,
+  extractTemporalAnchors,
 } from "./extraction/index.js";
 export {
   BruteForceVectorIndex,

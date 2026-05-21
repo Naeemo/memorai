@@ -93,6 +93,7 @@ export class RetrievalEngine {
     if (query.text) {
       n += 2; // bm25 + tag
       if (this.entityGraph) n += 1; // graph
+      n += 1; // temporalAnchor
     }
     if (query.timeRange) n += 1;
     if (query.strategy === "exploratory" || traversal === "salience") n += 1;
@@ -122,6 +123,7 @@ export class RetrievalEngine {
       if (this.entityGraph) {
         tasks.push(this.runPathway("graph", () => this.graphPathway(query)));
       }
+      tasks.push(this.runPathway("temporalAnchor", () => this.temporalAnchorPathway(query)));
     }
     if (query.timeRange) {
       tasks.push(
@@ -296,6 +298,41 @@ export class RetrievalEngine {
         if (!e.sourceNodeId) continue;
         const weight = (e.confidence ?? 0.5) + 0.5; // [0.5, 1.5]
         scores.set(e.sourceNodeId, (scores.get(e.sourceNodeId) ?? 0) + weight);
+      }
+    }
+
+    const sorted = [...scores.entries()].map(([id, score]) => ({ id, score }));
+    sorted.sort((a, b) => b.score - a.score);
+    return sorted.slice(0, PATHWAY_DEPTH);
+  }
+
+  /**
+   * Temporal-anchor pathway. For each entity-like token in the query, look up
+   * nodes that carry a temporal anchor with a matching canonical name. A node
+   * referenced by more (or higher-confidence) anchors ranks higher.
+   */
+  private async temporalAnchorPathway(query: RetrievalQuery): Promise<Array<{ id: string; score: number }>> {
+    const tokens = extractEntityTokens(query.text!);
+    if (tokens.length === 0) return [];
+
+    const scores = new Map<string, number>();
+    for (const token of tokens) {
+      let nodes: MemoryNode[];
+      try {
+        nodes = await this.storage.queryByTemporalAnchor(token, {
+          limit: PATHWAY_DEPTH,
+        });
+      } catch {
+        continue;
+      }
+      for (const n of nodes) {
+        if (!n.annotations.temporalAnchors) continue;
+        for (const a of n.annotations.temporalAnchors) {
+          const weight =
+            (a.confidence ?? 0.5) *
+            (a.type === "milestone" || a.type === "deadline" ? 1.5 : 1.0);
+          scores.set(n.id, (scores.get(n.id) ?? 0) + weight);
+        }
       }
     }
 

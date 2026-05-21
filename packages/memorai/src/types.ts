@@ -53,6 +53,28 @@ export interface KnowledgeTriple {
 }
 
 /**
+ * Temporal anchor — a time reference extracted from event content that serves
+ * as a named anchor point for relative-time queries ("before the migration",
+ * "after Alice arrived"). Anchors are resolved to absolute timestamps at
+ * write time so query-time resolution is O(1) lookup.
+ */
+export interface TemporalAnchor {
+  /** Canonical name of the anchor — "the migration", "alice's arrival" */
+  name: string;
+  /** Anchor type determines how queries relate to it. */
+  type: "point" | "range" | "recurring" | "deadline" | "milestone";
+  /** Absolute time in Unix ms (resolved at write time relative to event.timestamp) */
+  start?: number;
+  end?: number;
+  /** For relative anchors: the node/event id this anchor is relative to. */
+  relativeTo?: string;
+  /** Natural-language label as it appeared in the source text. */
+  label: string;
+  /** Confidence in [0,1]. */
+  confidence: number;
+}
+
+/**
  * Tier 2 derived annotations. `tags`, `salienceScore`, and `modality` always
  * carry a default. Open-ended annotation kinds (sentiment, topics, custom
  * extractor outputs, …) go under the `extensions` bag.
@@ -74,6 +96,8 @@ export interface MemoryAnnotations {
   embedding?: number[];
   /** Knowledge-graph triples extracted from the event. */
   triples?: KnowledgeTriple[];
+  /** Temporal anchors extracted from the event content for relative-time queries. */
+  temporalAnchors?: TemporalAnchor[];
   /** Open extension surface for custom annotation kinds. */
   extensions?: Record<string, unknown>;
 }
@@ -166,6 +190,7 @@ export interface MemoryAnnotationsInput {
   modality?: Modality[]; // default inferred from raw content
   embedding?: number[];
   triples?: KnowledgeTriple[];
+  temporalAnchors?: TemporalAnchor[];
   extensions?: Record<string, unknown>;
 }
 
@@ -344,6 +369,11 @@ export interface StorageAdapter {
    * relevance. Returns [] if `text` produces no tokens.
    */
   queryByText: (text: string, opts?: QueryOpts & { limit?: number }) => Promise<MemoryNode[]>;
+  /**
+   * Retrieve nodes whose `annotations.temporalAnchors` contain an anchor
+   * whose canonical name matches `name` (case-insensitive).
+   */
+  queryByTemporalAnchor: (name: string, opts?: QueryOpts) => Promise<MemoryNode[]>;
   getChildren: (parentId: string) => Promise<MemoryNode[]>;
   getParent: (childId: string) => Promise<MemoryNode | null>;
   listAll: (opts?: QueryOpts) => Promise<MemoryNode[]>;
