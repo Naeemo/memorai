@@ -1,12 +1,14 @@
 import {
   BruteForceVectorIndex,
   HnswVectorIndex,
+  HnswWasmVectorIndex,
   matchFilter,
   matchFilterClause,
   Memorai,
   MemoryAdapter,
   type EmbeddingService,
   type HnswlibIndex,
+  type HnswWasmIndex,
 } from "../src/index.js";
 
 class MockEmbeddingService implements EmbeddingService {
@@ -360,6 +362,9 @@ class MockHnswlib implements HnswlibIndex {
   setEf(_ef: number): void {
     // no-op in mock
   }
+  setEfSearch(_ef: number): void {
+    // no-op in mock (WASM API name)
+  }
 }
 
 function dot(a: number[], b: number[]): number {
@@ -513,7 +518,6 @@ describe("HnswVectorIndex — real hnswlib-node", () => {
 
   beforeAll(async () => {
     try {
-      // @ts-expect-error optional dev dependency
       const mod = await import("hnswlib-node");
       const HierarchicalNSW = mod.HierarchicalNSW ?? mod.default?.HierarchicalNSW;
       realHnsw = new HierarchicalNSW("cosine", 4) as HnswlibIndex;
@@ -530,5 +534,87 @@ describe("HnswVectorIndex — real hnswlib-node", () => {
     ]);
     const hits = await idx.query([1, 0, 0, 0], { topK: 1, minScore: 0 });
     expect(hits.map((h) => h.id)).toEqual(["alpha"]);
+  });
+});
+
+// ─── HnswWasmVectorIndex — mock-backed (same surface as HnswVectorIndex) ───
+
+describe("HnswWasmVectorIndex (mock WASM HNSW)", () => {
+  test("upsert + query returns top-K by cosine", async () => {
+    const idx = new HnswWasmVectorIndex(new MockHnswlib() as unknown as HnswWasmIndex, {
+      maxElements: 16,
+    });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0] },
+      { id: "b", embedding: [0.9, 0.1, 0, 0] },
+      { id: "c", embedding: [0, 1, 0, 0] },
+    ]);
+    expect(await idx.size()).toBe(3);
+    const hits = await idx.query([1, 0, 0, 0], { topK: 2, minScore: 0 });
+    expect(hits.map((h) => h.id)).toEqual(["a", "b"]);
+    expect(hits[0].score).toBeGreaterThan(hits[1].score);
+  });
+
+  test("upsert replaces existing id without growing the index", async () => {
+    const idx = new HnswWasmVectorIndex(new MockHnswlib() as unknown as HnswWasmIndex, {
+      maxElements: 16,
+    });
+    await idx.upsert({ id: "x", embedding: [1, 0, 0, 0] });
+    await idx.upsert({ id: "x", embedding: [0, 1, 0, 0] });
+    expect(await idx.size()).toBe(1);
+    const hits = await idx.query([0, 1, 0, 0], { topK: 5, minScore: 0 });
+    expect(hits[0].id).toBe("x");
+  });
+
+  test("delete tombstones the entry", async () => {
+    const idx = new HnswWasmVectorIndex(new MockHnswlib() as unknown as HnswWasmIndex, {
+      maxElements: 16,
+    });
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    await idx.upsert({ id: "b", embedding: [0, 1, 0, 0] });
+    await idx.delete("a");
+    expect(await idx.size()).toBe(1);
+    const hits = await idx.query([1, 0, 0, 0], { topK: 5, minScore: 0 });
+    expect(hits.map((h) => h.id)).toEqual(["b"]);
+  });
+
+  test("filter pushdown returns only matching metadata", async () => {
+    const idx = new HnswWasmVectorIndex(new MockHnswlib() as unknown as HnswWasmIndex, {
+      maxElements: 16,
+    });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0], metadata: { userId: "u1" } },
+      { id: "b", embedding: [0.95, 0.05, 0, 0], metadata: { userId: "u2" } },
+      { id: "c", embedding: [0.9, 0.1, 0, 0], metadata: { userId: "u1" } },
+    ]);
+    const hits = await idx.query([1, 0, 0, 0], {
+      topK: 5,
+      minScore: 0,
+      filter: { userId: "u1" },
+    });
+    expect(hits.map((h) => h.id).sort()).toEqual(["a", "c"]);
+  });
+
+  test("auto-resize when count would exceed maxElements", async () => {
+    const hnsw = new MockHnswlib();
+    const idx = new HnswWasmVectorIndex(hnsw as unknown as HnswWasmIndex, { maxElements: 2 });
+    await idx.upsertBatch([
+      { id: "a", embedding: [1, 0, 0, 0] },
+      { id: "b", embedding: [0, 1, 0, 0] },
+      { id: "c", embedding: [0, 0, 1, 0] },
+    ]);
+    expect(await idx.size()).toBe(3);
+    expect(hnsw.getMaxElements()).toBeGreaterThanOrEqual(3);
+  });
+
+  test("clear resets the index back to uninitialized", async () => {
+    const idx = new HnswWasmVectorIndex(new MockHnswlib() as unknown as HnswWasmIndex, {
+      maxElements: 16,
+    });
+    await idx.upsert({ id: "a", embedding: [1, 0, 0, 0] });
+    await idx.clear();
+    expect(await idx.size()).toBe(0);
+    await idx.upsert({ id: "z", embedding: [1, 2] });
+    expect(await idx.size()).toBe(1);
   });
 });

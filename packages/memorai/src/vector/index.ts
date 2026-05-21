@@ -6,6 +6,12 @@ export {
   type HnswVectorIndexOptions,
 } from "./hnsw.js";
 export {
+  HnswWasmVectorIndex,
+  loadHnswWasm,
+  type HnswWasmIndex,
+  type HnswWasmVectorIndexOptions,
+} from "./hnsw-wasm.js";
+export {
   matchFilter,
   matchFilterClause,
   type VectorFilter,
