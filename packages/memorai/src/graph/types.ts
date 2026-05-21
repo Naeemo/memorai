@@ -128,6 +128,17 @@ export interface EntityGraph {
     opts?: { maxDepth?: number; limit?: number; userId?: string },
   ): Promise<GraphPath[]>;
 
+  /**
+   * Weighted shortest paths from `from` to `to`, scored by the product of
+   * edge confidence along each path. Higher score = more trustworthy path.
+   * Returns at most `limit` paths sorted descending by score.
+   */
+  queryPathsWeighted(
+    from: string,
+    to: string,
+    opts?: { maxDepth?: number; limit?: number; userId?: string },
+  ): Promise<GraphPath[]>;
+
   size(): Promise<{ entities: number; edges: number }>;
   clear(): Promise<void>;
 }

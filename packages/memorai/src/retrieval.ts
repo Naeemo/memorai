@@ -269,20 +269,27 @@ export class RetrievalEngine {
   }
 
   /**
-   * Graph-aware pathway. For each entity-like token in the query, walk the
-   * graph one hop and collect source-node ids from each matched edge. A
-   * node referenced by more (or higher-confidence) edges ranks higher.
+   * Graph-aware pathway. Seeds on entity tokens from the query text, then
+   * runs a multi-hop PPR-style walk over the knowledge graph. Scores decay
+   * with hop distance so closer connections rank higher. Collects source-node
+   * ids from traversed edges so memories linked to query entities surface.
    *
-   * This pathway is the bridge between (subject, predicate, object) triples
-   * extracted at write time and the question-time retrieval — closing the
-   * Zep/Graphiti gap while staying RRF-fusable with the other pathways.
+   * For small graphs (< 1K edges) this walks up to 3 hops. For larger graphs
+   * it stays at 1 hop to keep latency bounded.
    */
   private async graphPathway(query: RetrievalQuery): Promise<Array<{ id: string; score: number }>> {
     if (!this.entityGraph) return [];
     const tokens = extractEntityTokens(query.text!);
     if (tokens.length === 0) return [];
 
+    const graphSize = await this.entityGraph.size();
+    const maxHops = graphSize.edges < 1000 ? 3 : 1;
+    const decay = 0.6; // score multiplier per hop
+
     const scores = new Map<string, number>();
+    const visited = new Set<string>(); // entity names visited at a given depth
+
+    // Seed: all edges touching a query token at depth 0
     for (const token of tokens) {
       let edges;
       try {
@@ -296,8 +303,57 @@ export class RetrievalEngine {
       }
       for (const e of edges) {
         if (!e.sourceNodeId) continue;
-        const weight = (e.confidence ?? 0.5) + 0.5; // [0.5, 1.5]
+        const weight = (e.confidence ?? 0.5) + 0.5;
         scores.set(e.sourceNodeId, (scores.get(e.sourceNodeId) ?? 0) + weight);
+      }
+    }
+
+    if (maxHops <= 1) {
+      const sorted = [...scores.entries()].map(([id, score]) => ({ id, score }));
+      sorted.sort((a, b) => b.score - a.score);
+      return sorted.slice(0, PATHWAY_DEPTH);
+    }
+
+    // Multi-hop PPR-style walk
+    for (let hop = 1; hop < maxHops; hop++) {
+      const hopScores = new Map<string, number>();
+      for (const token of tokens) {
+        let edges;
+        try {
+          edges = await this.entityGraph.queryNeighbors(token, {
+            userId: query.userId,
+            excludeInvalidated: true,
+            limit: PATHWAY_DEPTH * 2,
+          });
+        } catch {
+          continue;
+        }
+        for (const e of edges) {
+          const other = e.subject === token ? e.object : e.subject;
+          if (visited.has(other)) continue;
+          visited.add(other);
+
+          // Walk one more hop from `other`
+          let nextEdges;
+          try {
+            nextEdges = await this.entityGraph.queryNeighbors(other, {
+              userId: query.userId,
+              excludeInvalidated: true,
+              limit: PATHWAY_DEPTH,
+            });
+          } catch {
+            continue;
+          }
+          for (const ne of nextEdges) {
+            if (!ne.sourceNodeId) continue;
+            const weight = (ne.confidence ?? 0.5) + 0.5;
+            const decayed = weight * Math.pow(decay, hop);
+            hopScores.set(ne.sourceNodeId, (hopScores.get(ne.sourceNodeId) ?? 0) + decayed);
+          }
+        }
+      }
+      for (const [id, score] of hopScores) {
+        scores.set(id, (scores.get(id) ?? 0) + score);
       }
     }
 

@@ -183,6 +183,51 @@ describe("InMemoryEntityGraph", () => {
     expect(paths).toEqual([]);
   });
 
+  test("queryPathsWeighted prefers high-confidence paths", async () => {
+    const g = new InMemoryEntityGraph();
+    // Low-confidence direct edge
+    await g.upsertEdge({
+      subject: "alice",
+      predicate: "knows",
+      object: "bob",
+      confidence: 0.3,
+    });
+    // High-confidence two-hop path
+    await g.upsertEdge({
+      subject: "alice",
+      predicate: "knows",
+      object: "carol",
+      confidence: 0.95,
+    });
+    await g.upsertEdge({
+      subject: "carol",
+      predicate: "knows",
+      object: "bob",
+      confidence: 0.95,
+    });
+
+    const paths = await g.queryPathsWeighted("alice", "bob", { maxDepth: 3 });
+    expect(paths.length).toBe(2);
+    // The two-hop high-confidence path should outrank the low-confidence direct edge
+    expect(paths[0].entities).toEqual(["alice", "carol", "bob"]);
+  });
+
+  test("queryPathsWeighted geometric-mean scores make short/long comparable", async () => {
+    const g = new InMemoryEntityGraph();
+    // 2-hop path: 0.9 * 0.9 = 0.81 total, geom-mean = sqrt(0.81) = 0.9
+    await g.upsertEdge({ subject: "a", predicate: "p", object: "b", confidence: 0.9 });
+    await g.upsertEdge({ subject: "b", predicate: "p", object: "c", confidence: 0.9 });
+    // 3-hop path: 0.95 * 0.95 * 0.95 = 0.857 total, geom-mean = cbrt(0.857) ≈ 0.95
+    await g.upsertEdge({ subject: "a", predicate: "p", object: "d", confidence: 0.95 });
+    await g.upsertEdge({ subject: "d", predicate: "p", object: "e", confidence: 0.95 });
+    await g.upsertEdge({ subject: "e", predicate: "p", object: "c", confidence: 0.95 });
+
+    const paths = await g.queryPathsWeighted("a", "c", { maxDepth: 4 });
+    expect(paths.length).toBe(2);
+    // 3-hop path has higher geometric mean → ranks first
+    expect(paths[0].entities.length).toBe(4);
+  });
+
   test("deleteEdge cleans up adjacency", async () => {
     const g = new InMemoryEntityGraph();
     const e = await g.upsertEdge({ subject: "a", predicate: "p", object: "b" });

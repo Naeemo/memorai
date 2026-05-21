@@ -233,6 +233,76 @@ export class InMemoryEntityGraph implements EntityGraph {
     return paths.slice(0, limit);
   }
 
+  /**
+   * Best-first search scored by product of edge confidence.
+   * Higher-confidence paths are explored first; the score of a path is the
+   * geometric mean of its edge confidences (product^(1/n)) so longer paths
+   * are not unfairly penalized against short high-confidence ones.
+   */
+  async queryPathsWeighted(
+    from: string,
+    to: string,
+    opts: { maxDepth?: number; limit?: number; userId?: string } = {},
+  ): Promise<GraphPath[]> {
+    const start = canonicalName(from);
+    const goal = canonicalName(to);
+    if (!start || !goal || start === goal) return [];
+    const maxDepth = opts.maxDepth ?? 4;
+    const limit = opts.limit ?? 5;
+
+    type ScoredFrontier = {
+      node: string;
+      edges: GraphEdge[];
+      entities: string[];
+      score: number;
+    };
+
+    // Priority queue: highest score first
+    const heap: ScoredFrontier[] = [{ node: start, edges: [], entities: [start], score: 1 }];
+    const paths: GraphPath[] = [];
+
+    while (heap.length > 0 && paths.length < limit) {
+      // Pop highest-scoring frontier
+      let bestIdx = 0;
+      for (let i = 1; i < heap.length; i++) {
+        if (heap[i].score > heap[bestIdx].score) bestIdx = i;
+      }
+      const cur = heap.splice(bestIdx, 1)[0];
+      if (cur.entities.length - 1 >= maxDepth) continue;
+
+      const neighborEdges = await this.queryNeighbors(cur.node, {
+        userId: opts.userId,
+        excludeInvalidated: true,
+      });
+
+      for (const e of neighborEdges) {
+        const other = e.subject === cur.node ? e.object : e.subject;
+        if (cur.entities.includes(other) && other !== goal) continue;
+        const edgeConfidence = e.confidence ?? 0.5;
+        const nextScore = cur.score * edgeConfidence;
+        const nextEdges = [...cur.edges, e];
+        const nextEntities = [...cur.entities, other];
+        if (other === goal) {
+          paths.push({ edges: nextEdges, entities: nextEntities });
+          if (paths.length >= limit) break;
+          continue;
+        }
+        if (nextEntities.length - 1 < maxDepth) {
+          heap.push({ node: other, edges: nextEdges, entities: nextEntities, score: nextScore });
+        }
+      }
+    }
+
+    // Sort by geometric-mean confidence (score^(1/len)) so short and long
+    // paths are comparable.
+    paths.sort((a, b) => {
+      const scoreA = Math.pow(pathScore(a), 1 / a.edges.length);
+      const scoreB = Math.pow(pathScore(b), 1 / b.edges.length);
+      return scoreB - scoreA;
+    });
+    return paths.slice(0, limit);
+  }
+
   async size(): Promise<{ entities: number; edges: number }> {
     return { entities: this.entities.size, edges: this.edges.size };
   }
@@ -261,6 +331,14 @@ export class InMemoryEntityGraph implements EntityGraph {
     out.sort((a, b) => b.validAt - a.validAt);
     return opts.limit !== undefined ? out.slice(0, opts.limit) : out;
   }
+}
+
+function pathScore(path: GraphPath): number {
+  let score = 1;
+  for (const e of path.edges) {
+    score *= e.confidence ?? 0.5;
+  }
+  return score;
 }
 
 function addToIndex(map: Map<string, Set<string>>, key: string, id: string): void {
