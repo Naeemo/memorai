@@ -323,6 +323,17 @@ export class Memorai {
       };
     }
 
+    // Tier 3: LLM-assisted resolution for ambiguous relative expressions
+    // ("when we last spoke", "the other day", "around that time")
+    const llmResolved = await this.resolveTemporalViaLLM(question, opts);
+    if (llmResolved) {
+      return {
+        ...opts,
+        timeRange: llmResolved,
+        strategy: opts.strategy ?? "temporal",
+      };
+    }
+
     return opts;
   }
 
@@ -373,6 +384,67 @@ export class Memorai {
       default:
         return null;
     }
+  }
+
+  /**
+   * Tier 3 temporal resolution: ask the configured LLM to interpret ambiguous
+   * relative time expressions given recent event context. Used as a fallback
+   * when heuristic + anchor resolution both fail.
+   *
+   * The LLM is given the last 20 events in scope (filtered by userId/actor)
+   * and asked to return a JSON timeRange for the expression. If the LLM is
+   * not configured or the prompt fails, returns null.
+   */
+  private async resolveTemporalViaLLM(
+    question: string,
+    opts: RecallOptions,
+  ): Promise<{ start: number; end: number } | null> {
+    const llm = this.config.llm;
+    if (!llm) return null;
+
+    // Fetch recent events as context for the LLM
+    let recentEvents: MemoryEvent[] = [];
+    try {
+      if (opts.actor) {
+        recentEvents = await this.eventStore.queryEventsByParticipant(opts.actor, {
+          userId: opts.userId,
+          orderBy: "occurredAt",
+          order: "desc",
+          limit: 20,
+        });
+      } else {
+        recentEvents = await this.eventStore.listEvents({
+          userId: opts.userId,
+          orderBy: "occurredAt",
+          order: "desc",
+          limit: 20,
+        });
+      }
+    } catch {
+      return null;
+    }
+    if (recentEvents.length === 0) return null;
+
+    const prompt = buildTemporalResolutionPrompt(question, recentEvents);
+    try {
+      const raw = await llm.complete(prompt, { temperature: 0, maxTokens: 256, responseFormat: "json" });
+      const trimmed = raw.trim();
+      const start = trimmed.indexOf("{");
+      const end = trimmed.lastIndexOf("}");
+      if (start === -1 || end <= start) return null;
+      const obj = JSON.parse(trimmed.slice(start, end + 1)) as { start?: number; end?: number };
+      if (
+        typeof obj.start === "number" &&
+        typeof obj.end === "number" &&
+        obj.start >= 0 &&
+        obj.end > obj.start
+      ) {
+        return { start: obj.start, end: obj.end };
+      }
+    } catch {
+      // LLM fallback failed — return null so recall falls back to global search
+    }
+    return null;
   }
 
   private async recallNodes(
@@ -2282,6 +2354,35 @@ export class Memorai {
  * collapses whitespace, and strips punctuation — so "Alice prefers tea."
  * and "alice prefers tea" collapse to the same key.
  */
+function buildTemporalResolutionPrompt(question: string, events: MemoryEvent[]): string {
+  const eventLines = events
+    .map(
+      (e, i) =>
+        `${i + 1}. [${new Date(e.occurredAt).toISOString()}] ${e.description} (participants: ${e.participants.join(", ")})`,
+    )
+    .join("\n");
+
+  return `You are a temporal-resolution assistant. Given a question with a time expression and a list of recent events, resolve the expression to an absolute time range.
+
+QUESTION: "${question}"
+
+RECENT EVENTS (newest first):
+${eventLines}
+
+Respond with JSON only:
+{
+  "start": <unix timestamp ms>,
+  "end": <unix timestamp ms>
+}
+
+Guidance:
+- "start" and "end" are Unix timestamps in milliseconds.
+- If the expression refers to "when we last spoke", use the most recent event involving the query's participants.
+- If the expression is "around that time", use a ±12h window around the referenced event.
+- If truly unresolvable, return {"start": 0, "end": 0}.
+- No prose, no commentary — JSON only.`;
+}
+
 function normalizeEventDescription(s: string | undefined): string {
   if (!s) return "";
   return s
