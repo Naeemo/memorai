@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "npm-registry": {
+      "command": "npx",
+      "args": ["-y", "@universal-mcp-toolkit/server-npm-registry@latest"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@github/github-mcp-server@latest"]
+    }
+  }
+}

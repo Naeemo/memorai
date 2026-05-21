@@ -2475,6 +2475,8 @@ export {
 } from "./vector/index.js";
 export {
   InMemoryEntityGraph,
+  IndexedDBEntityGraph,
+  SQLiteEntityGraph,
   canonicalName as graphCanonicalName,
   edgePassesFilter,
   type EdgeFilter,
