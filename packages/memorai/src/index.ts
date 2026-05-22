@@ -2572,6 +2572,11 @@ export {
   type RetentionContext,
   type RetentionPolicy,
 } from "./retention/index.js";
+export {
+  PassthroughQuantizer,
+  ScalarQuantizer,
+  type EmbeddingQuantizer,
+} from "./quantizer.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {
