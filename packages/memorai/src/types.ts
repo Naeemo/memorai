@@ -762,6 +762,51 @@ export interface RecallResult {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Observability / Explainability
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * A timing span for one phase of the recall pipeline.
+ * Used by `explain()` and the optional `onRecall` callback.
+ */
+export interface RecallSpan {
+  /** Phase name: "temporal-resolution", "query-expansion", "semantic", "bm25", ... */
+  name: string;
+  /** Start timestamp (performance.now()). */
+  startMs: number;
+  /** End timestamp (performance.now()). */
+  endMs: number;
+  /** Phase-specific metadata: pathway counts, token usage, etc. */
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Result of `Memorai.explain()` — a full audit of why a recall
+ * returned the memories it did.
+ */
+export interface ExplainResult {
+  /** The original question. */
+  question: string;
+  /** Options that were in effect. */
+  opts: RecallOptions;
+  /** Timing spans for every phase. */
+  spans: RecallSpan[];
+  /** Raw-node recall result (before event fusion). */
+  nodeResult: RecallResult;
+  /** Event-level recall result (undefined when events disabled). */
+  eventResult?: RecallResult;
+  /** Fusion math: how node and event results were combined. */
+  fusion: {
+    method: string;
+    nodeCount: number;
+    eventCount: number;
+    finalCount: number;
+  };
+  /** Per-pathway aggregate stats. */
+  pathways: Record<string, { count: number; avgScore: number }>;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Patch (used by Memorai.update)
 // ─────────────────────────────────────────────────────────────
 
@@ -878,6 +923,12 @@ export interface MemoraiConfig {
   defaultUserId?: string;
   /** Logical namespace (multi-tenant separation). */
   namespace?: string;
+  /**
+   * Optional observability hook — called after every `recall()` with the
+   * question, result, and timing spans. Useful for monitoring, logging,
+   * or debugging recall quality in production.
+   */
+  onRecall?: (question: string, result: RecallResult, spans: RecallSpan[]) => void;
 }
 
 export interface ListOptions extends QueryOpts {

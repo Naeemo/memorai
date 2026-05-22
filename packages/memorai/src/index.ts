@@ -7,6 +7,7 @@ import { resolveTimeExpression } from "./temporal/index.js";
 import { InMemoryWorkingMemory } from "./working/index.js";
 import { DefaultRetentionPolicy } from "./retention/index.js";
 import { IterativeRecaller } from "./iterative.js";
+import { buildExplainResult, spanTracker } from "./explain.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -14,6 +15,7 @@ import type {
   Event,
   EventIdentifier,
   EventStore,
+  ExplainResult,
   Extractor,
   IdentifiedEvent,
   ListOptions,
@@ -219,40 +221,96 @@ export class Memorai {
    * opt-in and gracefully no-op when their dependencies aren't configured.
    */
   async recall(question: string, opts: RecallOptions = {}): Promise<RecallResult> {
+    const { result } = await this._recallInternal(question, opts);
+    return result;
+  }
+
+  /**
+   * Explain why a recall returned the memories it did.
+   *
+   * Runs the same pipeline as {@link recall} but returns a full audit
+   * trail: per-phase timing spans, pathway activation stats, fusion
+   * math, and the raw results from each retrieval route. Useful for
+   * debugging recall quality and understanding which pathways are
+   * contributing (or missing).
+   */
+  async explain(question: string, opts: RecallOptions = {}): Promise<ExplainResult> {
+    const { explainResult } = await this._recallInternal(question, opts, true);
+    return explainResult!;
+  }
+
+  private async _recallInternal(
+    question: string,
+    opts: RecallOptions,
+    returnExplain = false,
+  ): Promise<{ result: RecallResult; explainResult?: ExplainResult }> {
+    const tracker = spanTracker();
     const topK = opts.topK ?? 10;
-    // Pull more candidates than topK so the optional reranker has room
-    // to reorder. Cap at 3× topK to keep the LLM rerank call bounded.
     const preRerankTopK = this.config.reranker ? Math.min(topK * 3, 30) : topK;
 
-    // Auto-resolve temporal expressions in the question when the caller
-    // opted in AND didn't already supply `timeRange`. Off by default —
-    // the heuristic resolver fires on phrasings it doesn't actually
-    // understand and can over-constrain temporal queries. Enable
-    // `opts.resolveTime: true` when your queries use simple, concrete
-    // time markers ("yesterday", "in March", "two weeks ago").
+    const endTemporal = tracker.start("temporal-resolution");
     const effectiveOpts =
       opts.resolveTime && !opts.timeRange ? await this.applyTemporalResolution(question, opts) : opts;
+    endTemporal();
 
     const eventsEnabled = effectiveOpts.includeEvents !== false && this.identifier !== undefined;
 
-    const [nodeResult, eventMemories] = await Promise.all([
-      this.recallNodes(question, effectiveOpts, preRerankTopK),
-      eventsEnabled
-        ? this.recallEvents(question, effectiveOpts, preRerankTopK)
-        : Promise.resolve([]),
-    ]);
+    const endNodes = tracker.start("node-recall", { variants: 0 });
+    const nodeResult = await this.recallNodes(question, effectiveOpts, preRerankTopK);
+    endNodes();
 
+    let eventMemories: RecalledMemory[] = [];
+    if (eventsEnabled) {
+      const endEvents = tracker.start("event-recall");
+      eventMemories = await this.recallEvents(question, effectiveOpts, preRerankTopK);
+      endEvents();
+    }
+
+    const endFusion = tracker.start("fusion");
     const preRerank = this.mergeNodeAndEventResults(nodeResult, eventMemories, preRerankTopK);
+    endFusion();
 
+    let result: RecallResult;
     if (!this.config.reranker || preRerank.memories.length === 0) {
-      return {
+      result = {
         memories: preRerank.memories.slice(0, topK),
         confidence: preRerank.confidence,
         totalScanned: preRerank.totalScanned,
       };
+    } else {
+      const endRerank = tracker.start("rerank");
+      result = await this.applyReranker(question, preRerank, topK);
+      endRerank();
     }
 
-    return this.applyReranker(question, preRerank, topK);
+    const spans = tracker.collect();
+    this.config.onRecall?.(question, result, spans);
+
+    if (returnExplain) {
+      const nodeResForExplain: RecallResult = {
+        memories: nodeResult.memories.slice(0, preRerankTopK),
+        confidence: nodeResult.confidence,
+        totalScanned: nodeResult.totalScanned,
+      };
+      const eventResForExplain: RecallResult | undefined = eventsEnabled
+        ? {
+            memories: eventMemories.slice(0, preRerankTopK),
+            confidence: eventMemories.length > 0 ? 1 : 0,
+            totalScanned: eventMemories.length,
+          }
+        : undefined;
+      const explainResult = buildExplainResult({
+        question,
+        recallOpts: effectiveOpts,
+        spans,
+        nodeResult: nodeResForExplain,
+        eventResult: eventResForExplain,
+        fusedMemories: result.memories,
+      });
+      return { result, explainResult };
+    }
+
+    return { result };
   }
 
   /**
@@ -2519,10 +2577,12 @@ export {
 export type {
   Event,
   AutoEvolveTriggers,
+  ExplainResult,
   Extractor,
   NodePatch,
   RecallOptions,
   RecallResult,
+  RecallSpan,
   RecalledMemory,
   RecordHandle,
 } from "./types.js";

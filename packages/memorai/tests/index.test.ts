@@ -2042,3 +2042,52 @@ describe("SQLiteAdapter — real better-sqlite3", () => {
     await adapter.close();
   });
 });
+
+// ─── Observability / Explainability ───
+
+describe("Memorai.explain", () => {
+  test("returns spans, pathways, and fusion stats", async () => {
+    const embed = new MockEmbeddingService();
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: embed,
+      evolution: { mode: "manual" },
+    });
+    await memory.recordEvents([
+      { at: 1_000_000, actor: "alice", content: { kind: "message", text: "lunch at noon" } },
+      { at: 2_000_000, actor: "bob", content: { kind: "message", text: "weather is sunny" } },
+    ]).nodes;
+
+    const explanation = await memory.explain("what about lunch", { topK: 5 });
+    expect(explanation.question).toBe("what about lunch");
+    expect(explanation.spans.length).toBeGreaterThanOrEqual(1);
+    expect(explanation.fusion.method).toBe("rrf");
+    expect(explanation.fusion.finalCount).toBeGreaterThan(0);
+    expect(Object.keys(explanation.pathways).length).toBeGreaterThanOrEqual(1);
+    await memory.close();
+  });
+
+  test("onRecall callback fires after recall", async () => {
+    const embed = new MockEmbeddingService();
+    let capturedSpans: import("../src/types.js").RecallSpan[] | null = null;
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: embed,
+      evolution: { mode: "manual" },
+      onRecall: (_q, _r, spans) => {
+        capturedSpans = spans;
+      },
+    });
+    await memory.recordEvent({
+      at: 1_000_000,
+      actor: "alice",
+      content: { kind: "message", text: "project alpha started" },
+    }).nodes;
+
+    await memory.recall("project alpha", { topK: 3 });
+    expect(capturedSpans).not.toBeNull();
+    expect(capturedSpans!.length).toBeGreaterThanOrEqual(1);
+    expect(capturedSpans!.some((s) => s.name === "node-recall")).toBe(true);
+    await memory.close();
+  });
+});
