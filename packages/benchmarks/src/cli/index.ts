@@ -201,7 +201,7 @@ options:
   --top-k <n>                            (default: 30)
   --limit <n>                            (process first N conversations; default: all)
   --limit-qas <n>                        (max N QAs per conversation; default: all)
-  --categories <csv>                     (LoCoMo categories filter; default: 1,2,3,4)
+  --categories <csv>                     (LoCoMo categories: single_hop,temporal,multi_hop,open_domain,adversarial; default: all)
   --no-evolve                            (skip memory.evolve() after each session)
   --out <path>                           (default: results)
   --answerer-model <id>                  (default: gpt-4o-mini or gemma4:31b-cloud)
