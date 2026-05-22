@@ -51,7 +51,11 @@ export async function openaiChat(
     messages,
     max_tokens: opts?.maxTokens ?? 256,
   };
-  if (!isReasoningModel(model)) {
+  if (isReasoningModel(model)) {
+    // Moonshot kimi-k2.x requires temperature=1; OpenAI o-series drops it.
+    // Sending 1 is safe for both (o-series ignores it).
+    body.temperature = 1;
+  } else {
     body.temperature = opts?.temperature ?? 0;
   }
   const payload = JSON.stringify(body);

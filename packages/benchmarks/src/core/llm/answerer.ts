@@ -30,7 +30,7 @@ export async function generateAnswer(
   // final answer. Non-reasoning models stop well before 256.
   const maxTokens = isReasoningModel(backend.model) ? 4096 : 256;
   return backendComplete(backend, ANSWERER_SYSTEM, user, {
-    temperature: 0,
+    temperature: isReasoningModel(backend.model) ? 1 : 0,
     maxTokens,
   });
 }

@@ -1,0 +1,526 @@
+{
+  "suite": "locomo",
+  "provider": "memorai",
+  "ingestMode": "wrap",
+  "answererModel": "openai:kimi-k2.6",
+  "judgeModel": "openai:kimi-k2.6",
+  "embedder": "ollama",
+  "conversations": 1,
+  "totalQas": 5,
+  "correct": 1,
+  "accuracy": 0.2,
+  "avgLatencyMs": 62135.581758,
+  "p95LatencyMs": 130709.987708,
+  "byCategory": [
+    {
+      "category": "multi_hop",
+      "count": 1,
+      "correct": 0,
+      "accuracy": 0,
+      "f1": 0.06451612903225806,
+      "bleu1": 0.03571428571428571
+    },
+    {
+      "category": "single_hop",
+      "count": 2,
+      "correct": 1,
+      "accuracy": 0.5,
+      "f1": 0.125,
+      "bleu1": 0.07142857142857142
+    },
+    {
+      "category": "temporal",
+      "count": 2,
+      "correct": 0,
+      "accuracy": 0,
+      "f1": 0,
+      "bleu1": 0
+    }
+  ],
+  "records": [
+    {
+      "qa": {
+        "id": "conv-26#0",
+        "question": "When did Caroline go to the LGBTQ support group?",
+        "gold": "7 May 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.012048192771084338
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.010752688172043012
+        },
+        {
+          "content": "I went to a LGBTQ support group yesterday and it was so powerful.; The support group has made me feel accepted and given me courage to embrace myself.; Awesome, Mel! Family support's huge. What else do you guys like doing together?; Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.; Our loved ones give us strength to tackle any challenge - it's amazing!; Glad you've got people to lean on, Melanie. It helps during tougher times.",
+          "score": 0.04154495777446598
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.009174311926605505
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.010416666666666666
+        },
+        {
+          "content": "Wow, Caroline! Sorry that happened to you. It's tough when those things happen, but it's great you apologized. Takes a lot of courage and maturity! What do you think of this?",
+          "score": 0.009523809523809525
+        },
+        {
+          "content": "That's so funny! I used to go horseback riding with my dad when I was a kid, we'd go through the fields, feeling the wind. It was so special. I've always had a love for horses!",
+          "score": 0.016129032258064516
+        },
+        {
+          "content": "Hey Caroline, sorry about the hike. It sucks when people are so closed-minded. Strong support really helps. FYI, I finished another pottery project - want to see a pic?",
+          "score": 0.013157894736842105
+        },
+        {
+          "content": "Hey Mel! How're ya doin'? Recently, I had a not-so-great experience on a hike. I ran into a group of religious conservatives who said something that really upset me. It made me think how much work we still have to do for LGBTQ rights. It's been so helpful to have people around me who accept and support me, so I know I'll be ok!",
+          "score": 0.014705882352941176
+        },
+        {
+          "content": "Yep, Caroline. Taking care of ourselves is vital. I'm off to go swimming with the kids. Talk to you soon!; Thanks, Caroline! The event was really thought-provoking. I'm starting to realize that self-care is really important. It's a journey for me, but when I look after myself, I'm able to better look after my family.; I totally agree, Melanie. Taking care of ourselves is so important - even if it's not always easy. Great that you're prioritizing self-care.; That's great, Mel! Taking time for yourself is so important. You're doing an awesome job looking after yourself and your family!; Wow, Caroline! That's awesome! Taking in kids in need - you're so kind. Your future family is gonna be so lucky to have you!; I'm thrilled to make a family for kids who need one. It'll be tough as a single parent, but I'm up for the challenge!; You're doing something amazing! Creating a family for those kids is so lovely. You'll be an awesome mom! Good luck!; Thanks, Melanie! Your kind words really mean a lot. I'll do my best to make sure these kids have a safe and loving home.; Thanks, Caroline! Appreciate your kind words. Looking forward to more happy years. Our family and moments make it all worth it.; Absolutely, Caroline! I cherish time with family. It's when I really feel alive and happy.; I 100% agree, Mel. Hanging with loved ones is amazing and brings so much happiness. Those moments really make me thankful. Family is everything.; Thanks, Melanie! Your kind words mean a lot.; Thanks, Melanie. It means a lot to share this with you.",
+          "score": 0.009174311926605505
+        },
+        {
+          "content": "Seeing my mentee's face light up when they saw the support was the best! Such a special moment.",
+          "score": 0.0136986301369863
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; I mentor a transgender teen just like me. We've been working on building up confidence and finding positive strategies, and it's really been paying off! We had a great time at the LGBT pride event last month.",
+          "score": 0.010638297872340425
+        },
+        {
+          "content": "That's awesome, Melanie! How have your family been supportive during your move?",
+          "score": 0.010869565217391304
+        },
+        {
+          "content": "Wow, Caroline, way to go! Your future fam will get a kick out of having you. What do you think of these?",
+          "score": 0.012345679012345678
+        },
+        {
+          "content": "Hey, Caroline! Nice to hear from you! Love the necklace, any special meaning to it?; Thanks, Melanie! This necklace is super special to me - a gift from my grandma in my home country, Sweden. She gave it to me when I was young, and it stands for love, faith and strength. It's like a reminder of my roots and all the love and support I get from my family.; That's gorgeous, Caroline! It's awesome what items can mean so much to us, right? Got any other objects that you treasure, like that necklace?",
+          "score": 0.009345794392523364
+        },
+        {
+          "content": "Researching adoption agencies — it's been a dream to have a family and give a loving home to kids who need it.; Thanks, Mel! My goal is to give kids a loving home. I'm truly grateful for all the support I've got from friends and mentors. Now the hard work starts to turn my dream into a reality. And here's one of the adoption agencies I'm looking into. It's a lot to take in, but I'm feeling hopeful and optimistic.; I chose them 'cause they help LGBTQ+ folks with adoption. Their inclusivity and support really spoke to me.; That's great, Caroline! Loving the inclusivity and support. Anything you're excited for in the adoption process?",
+          "score": 0.02003205128205128
+        },
+        {
+          "content": "Totally agree, Mel. Relaxing and expressing ourselves is key. Well, I'm off to go do some research.",
+          "score": 0.01
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 19158.019957999997,
+      "hitCount": 17
+    },
+    {
+      "qa": {
+        "id": "conv-26#1",
+        "question": "When did Melanie paint a sunrise?",
+        "gold": "2022",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.011904761904761904
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.010638297872340425
+        },
+        {
+          "content": "I went to a LGBTQ support group yesterday and it was so powerful.; The support group has made me feel accepted and given me courage to embrace myself.; Awesome, Mel! Family support's huge. What else do you guys like doing together?; Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.; Our loved ones give us strength to tackle any challenge - it's amazing!; Glad you've got people to lean on, Melanie. It helps during tougher times.",
+          "score": 0.009900990099009901
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.011627906976744186
+        },
+        {
+          "content": "Wow, Mel, I'm so stoked for you that art is helping you express yourself and bring you joy! Keep it up!; Wow, Mel! Any more paintings coming up?; I'm putting together an LGBTQ art show next month and I'm gonna show my paintings. Super stoked!; Yeah Mel, stoked! Gonna be a great night featuring LGBTQ artists and their awesome talents. We want it to spread understanding and acceptance - let's make it happen!; Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.011235955056179775
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yeah, I painted that lake sunrise last year! It's special to me.; Wow, that sounds great - I agree, they're awesome. Here's a photo of my horse painting I did recently.; Wow, Melanie, that's amazing! Love all the details and how you got the horse's grace and strength. Do you like painting animals?; Nah, I haven't. I've been busy painting - here's something I just finished.; Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.03076923076923077
+        },
+        {
+          "content": "Yeah, I play clarinet! Started when I was young and it's been great. Expression of myself and a way to relax.",
+          "score": 0.013888888888888888
+        },
+        {
+          "content": "I'm feeling inspired by autumn so I'm planning a few. You got any cool art projects coming up?",
+          "score": 0.009900990099009901
+        },
+        {
+          "content": "Painting landscapes and still life is my favorite! Nature's amazing, here's a painting I did recently.",
+          "score": 0.010869565217391304
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Wow, Caroline!  All those colors are incredible and the story it tells is so inspiring.; Wow, Caroline, that's so nice! The colors are so bright and the flowers are so pretty. Art is such a source of joy.",
+          "score": 0.011363636363636364
+        },
+        {
+          "content": "Thanks, Melanie! That plate is awesome! Did you make it?",
+          "score": 0.009523809523809525
+        },
+        {
+          "content": "Wow, Caroline! Sorry that happened to you. It's tough when those things happen, but it's great you apologized. Takes a lot of courage and maturity! What do you think of this?",
+          "score": 0.011764705882352941
+        },
+        {
+          "content": "That's so funny! I used to go horseback riding with my dad when I was a kid, we'd go through the fields, feeling the wind. It was so special. I've always had a love for horses!",
+          "score": 0.01098901098901099
+        },
+        {
+          "content": "Oliver's hilarious! He hid his bone in my slipper once! Cute, right? Almost as silly as when I got to feed a horse a carrot. ",
+          "score": 0.012658227848101266
+        },
+        {
+          "content": "Hey Caroline, sorry about the hike. It sucks when people are so closed-minded. Strong support really helps. FYI, I finished another pottery project - want to see a pic?",
+          "score": 0.009900990099009901
+        },
+        {
+          "content": "Yep, Caroline. Taking care of ourselves is vital. I'm off to go swimming with the kids. Talk to you soon!; Thanks, Caroline! The event was really thought-provoking. I'm starting to realize that self-care is really important. It's a journey for me, but when I look after myself, I'm able to better look after my family.; I totally agree, Melanie. Taking care of ourselves is so important - even if it's not always easy. Great that you're prioritizing self-care.; That's great, Mel! Taking time for yourself is so important. You're doing an awesome job looking after yourself and your family!; Wow, Caroline! That's awesome! Taking in kids in need - you're so kind. Your future family is gonna be so lucky to have you!; I'm thrilled to make a family for kids who need one. It'll be tough as a single parent, but I'm up for the challenge!; You're doing something amazing! Creating a family for those kids is so lovely. You'll be an awesome mom! Good luck!; Thanks, Melanie! Your kind words really mean a lot. I'll do my best to make sure these kids have a safe and loving home.; Thanks, Caroline! Appreciate your kind words. Looking forward to more happy years. Our family and moments make it all worth it.; Absolutely, Caroline! I cherish time with family. It's when I really feel alive and happy.; I 100% agree, Mel. Hanging with loved ones is amazing and brings so much happiness. Those moments really make me thankful. Family is everything.; Thanks, Melanie! Your kind words mean a lot.; Thanks, Melanie. It means a lot to share this with you.",
+          "score": 0.009259259259259259
+        },
+        {
+          "content": "Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?",
+          "score": 0.010416666666666666
+        },
+        {
+          "content": "Seeing my mentee's face light up when they saw the support was the best! Such a special moment.",
+          "score": 0.013513513513513514
+        },
+        {
+          "content": "Glad it helped ya, Melanie!",
+          "score": 0.010309278350515464
+        },
+        {
+          "content": "Being a mom is awesome. I'm creating a library for when I have kids. I'm really looking forward to reading to them and opening up their minds.",
+          "score": 0.013157894736842105
+        },
+        {
+          "content": "Hey, Caroline! Nice to hear from you! Love the necklace, any special meaning to it?; Thanks, Melanie! This necklace is super special to me - a gift from my grandma in my home country, Sweden. She gave it to me when I was young, and it stands for love, faith and strength. It's like a reminder of my roots and all the love and support I get from my family.; That's gorgeous, Caroline! It's awesome what items can mean so much to us, right? Got any other objects that you treasure, like that necklace?",
+          "score": 0.010526315789473684
+        }
+      ],
+      "predicted": "Melanie painted a lake sunrise last year.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 63079.254083,
+      "hitCount": 21
+    },
+    {
+      "qa": {
+        "id": "conv-26#2",
+        "question": "What fields would Caroline be likely to pursue in her educaton?",
+        "gold": "Psychology, counseling certification",
+        "category": "multi_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.011904761904761904
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.010638297872340425
+        },
+        {
+          "content": "I went to a LGBTQ support group yesterday and it was so powerful.; The support group has made me feel accepted and given me courage to embrace myself.; Awesome, Mel! Family support's huge. What else do you guys like doing together?; Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.; Our loved ones give us strength to tackle any challenge - it's amazing!; Glad you've got people to lean on, Melanie. It helps during tougher times.",
+          "score": 0.009900990099009901
+        },
+        {
+          "content": "Yep, Caroline. Life's about learning and exploring. Glad we can be on this trip together.",
+          "score": 0.015384615384615385
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Wow, Caroline!  All those colors are incredible and the story it tells is so inspiring.; Wow, Caroline, that's so nice! The colors are so bright and the flowers are so pretty. Art is such a source of joy.",
+          "score": 0.010101010101010102
+        },
+        {
+          "content": "Wow, Caroline! Sorry that happened to you. It's tough when those things happen, but it's great you apologized. Takes a lot of courage and maturity! What do you think of this?",
+          "score": 0.009433962264150943
+        },
+        {
+          "content": "That's so funny! I used to go horseback riding with my dad when I was a kid, we'd go through the fields, feeling the wind. It was so special. I've always had a love for horses!",
+          "score": 0.015625
+        },
+        {
+          "content": "Yep, Caroline. Taking care of ourselves is vital. I'm off to go swimming with the kids. Talk to you soon!; Thanks, Caroline! The event was really thought-provoking. I'm starting to realize that self-care is really important. It's a journey for me, but when I look after myself, I'm able to better look after my family.; I totally agree, Melanie. Taking care of ourselves is so important - even if it's not always easy. Great that you're prioritizing self-care.; That's great, Mel! Taking time for yourself is so important. You're doing an awesome job looking after yourself and your family!; Wow, Caroline! That's awesome! Taking in kids in need - you're so kind. Your future family is gonna be so lucky to have you!; I'm thrilled to make a family for kids who need one. It'll be tough as a single parent, but I'm up for the challenge!; You're doing something amazing! Creating a family for those kids is so lovely. You'll be an awesome mom! Good luck!; Thanks, Melanie! Your kind words really mean a lot. I'll do my best to make sure these kids have a safe and loving home.; Thanks, Caroline! Appreciate your kind words. Looking forward to more happy years. Our family and moments make it all worth it.; Absolutely, Caroline! I cherish time with family. It's when I really feel alive and happy.; I 100% agree, Mel. Hanging with loved ones is amazing and brings so much happiness. Those moments really make me thankful. Family is everything.; Thanks, Melanie! Your kind words mean a lot.; Thanks, Melanie. It means a lot to share this with you.",
+          "score": 0.011235955056179775
+        },
+        {
+          "content": "Caroline, awesome news that you two are getting along! What was it like for you both? Care to fill me in?",
+          "score": 0.011363636363636364
+        },
+        {
+          "content": "We enjoy hiking in the mountains and exploring forests. It's a cool way to connect with nature and each other.",
+          "score": 0.013333333333333334
+        },
+        {
+          "content": "Wow, Caroline, way to go! Your future fam will get a kick out of having you. What do you think of these?",
+          "score": 0.010752688172043012
+        },
+        {
+          "content": "Thanks, Caroline! Family time matters to me. What's up with you lately?",
+          "score": 0.013888888888888888
+        },
+        {
+          "content": "Yes, Caroline! We can do it. Your courage is inspiring. I want to be couragous for my family- they motivate me and give me love. What motivates you?",
+          "score": 0.011764705882352941
+        },
+        {
+          "content": "Researching adoption agencies — it's been a dream to have a family and give a loving home to kids who need it.; Thanks, Mel! My goal is to give kids a loving home. I'm truly grateful for all the support I've got from friends and mentors. Now the hard work starts to turn my dream into a reality. And here's one of the adoption agencies I'm looking into. It's a lot to take in, but I'm feeling hopeful and optimistic.; I chose them 'cause they help LGBTQ+ folks with adoption. Their inclusivity and support really spoke to me.; That's great, Caroline! Loving the inclusivity and support. Anything you're excited for in the adoption process?",
+          "score": 0.009345794392523364
+        },
+        {
+          "content": "Thanks, Caroline. It's still a work in progress, but I'm doing my best. My kids are so excited about summer break! We're thinking about going camping next month. Any fun plans for the summer?",
+          "score": 0.010869565217391304
+        },
+        {
+          "content": "Hey Caroline, since we last chatted, I've had a lot of things happening to me. I ran a charity race for mental health last Saturday – it was really rewarding. Really made me think about taking care of our minds.; That charity race sounds great, Mel! Making a difference & raising awareness for mental health is super rewarding - I'm really proud of you for taking part!",
+          "score": 0.009259259259259259
+        },
+        {
+          "content": "Totally agree, Mel. Relaxing and expressing ourselves is key. Well, I'm off to go do some research.",
+          "score": 0.00980392156862745
+        },
+        {
+          "content": "You'd be a great counselor! Your empathy and understanding will really help the people you work with. By the way, take a look at this.",
+          "score": 0.012987012987012988
+        },
+        {
+          "content": "I'm keen on counseling or working in mental health - I'd love to support those with similar issues.",
+          "score": 0.014084507042253521
+        },
+        {
+          "content": "Wow, Caroline! What kinda jobs are you thinkin' of? Anything that stands out?",
+          "score": 0.02786377708978328
+        },
+        {
+          "content": "Gonna continue my edu and check out career options, which is pretty exciting!",
+          "score": 0.016129032258064516
+        },
+        {
+          "content": "Wow, that's cool, Caroline! What happened that was so awesome? Did you hear any inspiring stories?",
+          "score": 0.012658227848101266
+        },
+        {
+          "content": "Hey Caroline! Good to see you! I'm swamped with the kids & work. What's up with you? Anything new?",
+          "score": 0.012048192771084338
+        }
+      ],
+      "predicted": "Caroline would likely pursue counseling, mental health, or a related field supporting children and families, given her interest in becoming a counselor and her research into adoption agencies.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 130709.987708,
+      "hitCount": 23
+    },
+    {
+      "qa": {
+        "id": "conv-26#3",
+        "question": "What did Caroline research?",
+        "gold": "Adoption agencies",
+        "category": "single_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.011904761904761904
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.010638297872340425
+        },
+        {
+          "content": "I went to a LGBTQ support group yesterday and it was so powerful.; The support group has made me feel accepted and given me courage to embrace myself.; Awesome, Mel! Family support's huge. What else do you guys like doing together?; Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.; Our loved ones give us strength to tackle any challenge - it's amazing!; Glad you've got people to lean on, Melanie. It helps during tougher times.",
+          "score": 0.02224666911135558
+        },
+        {
+          "content": "Yep, Caroline. Life's about learning and exploring. Glad we can be on this trip together.",
+          "score": 0.012987012987012988
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yeah, I painted that lake sunrise last year! It's special to me.; Wow, that sounds great - I agree, they're awesome. Here's a photo of my horse painting I did recently.; Wow, Melanie, that's amazing! Love all the details and how you got the horse's grace and strength. Do you like painting animals?; Nah, I haven't. I've been busy painting - here's something I just finished.; Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.0125
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.030117753623188408
+        },
+        {
+          "content": "Wow! Did you see that band?; Wow, what a fun moment! What's the band?",
+          "score": 0.01020408163265306
+        },
+        {
+          "content": "Wow, Caroline! Sorry that happened to you. It's tough when those things happen, but it's great you apologized. Takes a lot of courage and maturity! What do you think of this?",
+          "score": 0.009259259259259259
+        },
+        {
+          "content": "Yep, Caroline. Taking care of ourselves is vital. I'm off to go swimming with the kids. Talk to you soon!; Thanks, Caroline! The event was really thought-provoking. I'm starting to realize that self-care is really important. It's a journey for me, but when I look after myself, I'm able to better look after my family.; I totally agree, Melanie. Taking care of ourselves is so important - even if it's not always easy. Great that you're prioritizing self-care.; That's great, Mel! Taking time for yourself is so important. You're doing an awesome job looking after yourself and your family!; Wow, Caroline! That's awesome! Taking in kids in need - you're so kind. Your future family is gonna be so lucky to have you!; I'm thrilled to make a family for kids who need one. It'll be tough as a single parent, but I'm up for the challenge!; You're doing something amazing! Creating a family for those kids is so lovely. You'll be an awesome mom! Good luck!; Thanks, Melanie! Your kind words really mean a lot. I'll do my best to make sure these kids have a safe and loving home.; Thanks, Caroline! Appreciate your kind words. Looking forward to more happy years. Our family and moments make it all worth it.; Absolutely, Caroline! I cherish time with family. It's when I really feel alive and happy.; I 100% agree, Mel. Hanging with loved ones is amazing and brings so much happiness. Those moments really make me thankful. Family is everything.; Thanks, Melanie! Your kind words mean a lot.; Thanks, Melanie. It means a lot to share this with you.",
+          "score": 0.013888888888888888
+        },
+        {
+          "content": "Wow, Mel. That must've been breathtaking!",
+          "score": 0.010869565217391304
+        },
+        {
+          "content": "Cool! What did it look like?",
+          "score": 0.015151515151515152
+        },
+        {
+          "content": "Caroline, awesome news that you two are getting along! What was it like for you both? Care to fill me in?",
+          "score": 0.011363636363636364
+        },
+        {
+          "content": "Wow, Caroline, way to go! Your future fam will get a kick out of having you. What do you think of these?",
+          "score": 0.010638297872340425
+        },
+        {
+          "content": "Glad it helped ya, Melanie!",
+          "score": 0.015625
+        },
+        {
+          "content": "Wow! What got you into running?",
+          "score": 0.013157894736842105
+        },
+        {
+          "content": "Cool, thanks Mel! Can't wait. I'll keep ya posted. Bye!",
+          "score": 0.011627906976744186
+        },
+        {
+          "content": "Thanks, Caroline! Family time matters to me. What's up with you lately?",
+          "score": 0.013513513513513514
+        },
+        {
+          "content": "Yes, Caroline! We can do it. Your courage is inspiring. I want to be couragous for my family- they motivate me and give me love. What motivates you?",
+          "score": 0.011235955056179775
+        },
+        {
+          "content": "Totally agree, Mel. Relaxing and expressing ourselves is key. Well, I'm off to go do some research.",
+          "score": 0.03225806451612903
+        },
+        {
+          "content": "Wow, Caroline! What kinda jobs are you thinkin' of? Anything that stands out?",
+          "score": 0.01282051282051282
+        },
+        {
+          "content": "Wow, that's cool, Caroline! What happened that was so awesome? Did you hear any inspiring stories?",
+          "score": 0.012195121951219513
+        },
+        {
+          "content": "Hey Caroline! Good to see you! I'm swamped with the kids & work. What's up with you? Anything new?",
+          "score": 0.011111111111111112
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 24957.335333000025,
+      "hitCount": 22
+    },
+    {
+      "qa": {
+        "id": "conv-26#4",
+        "question": "What is Caroline's identity?",
+        "gold": "Transgender woman",
+        "category": "single_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.011904761904761904
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.010638297872340425
+        },
+        {
+          "content": "I went to a LGBTQ support group yesterday and it was so powerful.; The support group has made me feel accepted and given me courage to embrace myself.; Awesome, Mel! Family support's huge. What else do you guys like doing together?; Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.; Our loved ones give us strength to tackle any challenge - it's amazing!; Glad you've got people to lean on, Melanie. It helps during tougher times.",
+          "score": 0.009900990099009901
+        },
+        {
+          "content": "Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.015873015873015872
+        },
+        {
+          "content": "Music's amazing, isn't it? Any songs that have deep meaning for you?",
+          "score": 0.009523809523809525
+        },
+        {
+          "content": "Wow! Did you see that band?; Wow, what a fun moment! What's the band?",
+          "score": 0.0136986301369863
+        },
+        {
+          "content": "Wow, Caroline! Sorry that happened to you. It's tough when those things happen, but it's great you apologized. Takes a lot of courage and maturity! What do you think of this?",
+          "score": 0.009345794392523364
+        },
+        {
+          "content": "Yep, Caroline. Taking care of ourselves is vital. I'm off to go swimming with the kids. Talk to you soon!; Thanks, Caroline! The event was really thought-provoking. I'm starting to realize that self-care is really important. It's a journey for me, but when I look after myself, I'm able to better look after my family.; I totally agree, Melanie. Taking care of ourselves is so important - even if it's not always easy. Great that you're prioritizing self-care.; That's great, Mel! Taking time for yourself is so important. You're doing an awesome job looking after yourself and your family!; Wow, Caroline! That's awesome! Taking in kids in need - you're so kind. Your future family is gonna be so lucky to have you!; I'm thrilled to make a family for kids who need one. It'll be tough as a single parent, but I'm up for the challenge!; You're doing something amazing! Creating a family for those kids is so lovely. You'll be an awesome mom! Good luck!; Thanks, Melanie! Your kind words really mean a lot. I'll do my best to make sure these kids have a safe and loving home.; Thanks, Caroline! Appreciate your kind words. Looking forward to more happy years. Our family and moments make it all worth it.; Absolutely, Caroline! I cherish time with family. It's when I really feel alive and happy.; I 100% agree, Mel. Hanging with loved ones is amazing and brings so much happiness. Those moments really make me thankful. Family is everything.; Thanks, Melanie! Your kind words mean a lot.; Thanks, Melanie. It means a lot to share this with you.",
+          "score": 0.016129032258064516
+        },
+        {
+          "content": "Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?",
+          "score": 0.027893738140417457
+        },
+        {
+          "content": "Cool! What did it look like?",
+          "score": 0.010752688172043012
+        },
+        {
+          "content": "Caroline, awesome news that you two are getting along! What was it like for you both? Care to fill me in?",
+          "score": 0.011627906976744186
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; I mentor a transgender teen just like me. We've been working on building up confidence and finding positive strategies, and it's really been paying off! We had a great time at the LGBT pride event last month.",
+          "score": 0.009259259259259259
+        },
+        {
+          "content": "Wow, Caroline, way to go! Your future fam will get a kick out of having you. What do you think of these?",
+          "score": 0.010869565217391304
+        },
+        {
+          "content": "Thanks, Caroline! Family time matters to me. What's up with you lately?",
+          "score": 0.013888888888888888
+        },
+        {
+          "content": "Yes, Caroline! We can do it. Your courage is inspiring. I want to be couragous for my family- they motivate me and give me love. What motivates you?",
+          "score": 0.011494252873563218
+        },
+        {
+          "content": "Totally agree, Mel. Relaxing and expressing ourselves is key. Well, I'm off to go do some research.",
+          "score": 0.0125
+        },
+        {
+          "content": "Wow, Caroline! What kinda jobs are you thinkin' of? Anything that stands out?",
+          "score": 0.013157894736842105
+        },
+        {
+          "content": "That's really cool. You've got guts. What now?",
+          "score": 0.012048192771084338
+        },
+        {
+          "content": "Wow, that's cool, Caroline! What happened that was so awesome? Did you hear any inspiring stories?",
+          "score": 0.0125
+        },
+        {
+          "content": "Hey Caroline! Good to see you! I'm swamped with the kids & work. What's up with you? Anything new?",
+          "score": 0.011363636363636364
+        }
+      ],
+      "predicted": "Caroline is a transgender woman who embraces her womanhood and mentors a transgender teen.",
+      "judgeLabel": "CORRECT",
+      "latencyMs": 72773.31170799996,
+      "hitCount": 20
+    }
+  ],
+  "runAt": "2026-05-22T13:38:36.893Z",
+  "durationMs": 322821.999291
+}
