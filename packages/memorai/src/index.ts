@@ -2495,6 +2495,11 @@ export {
   type IterativeRecallStep,
 } from "./iterative.js";
 export {
+  StreamIngestor,
+  type StreamIngestorOptions,
+  type StreamResult,
+} from "./stream.js";
+export {
   InMemoryWorkingMemory,
   type SetOptions as WorkingMemorySetOptions,
   type WorkingMemory,
