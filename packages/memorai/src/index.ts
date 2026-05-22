@@ -2550,6 +2550,10 @@ export {
   extractTags,
   scoreSalience,
   extractTemporalAnchors,
+  MultimodalExtractor,
+  type AudioTranscriber,
+  type ImageCaptioner,
+  type MultimodalExtractorOptions,
 } from "./extraction/index.js";
 export {
   BruteForceVectorIndex,
