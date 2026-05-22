@@ -123,6 +123,8 @@ export interface MemoryMeta {
   accessCount: number;
   /** Unix ms when EventIdentifier ran on this node (undefined = not yet). */
   identifiedAt?: number;
+  /** Unix ms when this node was imported from another instance via federation. */
+  importedAt?: number;
   /**
    * Set to true after this node was folded into a MemoryEvent by the
    * identifier. Storage adapters use it to suppress redundant
@@ -929,6 +931,50 @@ export interface MemoraiConfig {
    * or debugging recall quality in production.
    */
   onRecall?: (question: string, result: RecallResult, spans: RecallSpan[]) => void;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Multi-Agent Federation
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Filter for {@link Memorai.subscribe}. When a newly-written node matches
+ * all specified clauses, the registered callback is invoked.
+ */
+export interface SubscribeFilter {
+  /** Match nodes whose text contains this substring (case-insensitive). */
+  textContains?: string;
+  /** Match nodes from this actor. */
+  actor?: string;
+  /** Match nodes with any of these tags. */
+  tags?: string[];
+  /** Match nodes at or above this salience threshold. */
+  minSalience?: number;
+  /** Custom predicate — called with the node, return true to notify. */
+  predicate?: (node: MemoryNode) => boolean;
+}
+
+/**
+ * Handle returned by {@link Memorai.subscribe}. Call `unsubscribe()` to
+ * remove the listener.
+ */
+export interface SubscriptionHandle {
+  unsubscribe(): void;
+}
+
+/**
+ * Serializable memory slice for cross-instance federation.
+ * Used by {@link MemoryFederation} to pull/push memory between agents.
+ */
+export interface MemorySlice {
+  /** Agent / instance that produced this slice. */
+  sourceAgentId: string;
+  /** Unix ms when the slice was exported. */
+  exportedAt: number;
+  /** Nodes in the slice. */
+  nodes: MemoryNode[];
+  /** Events in the slice (if event store is configured). */
+  events?: MemoryEvent[];
 }
 
 export interface ListOptions extends QueryOpts {

@@ -8,6 +8,7 @@ import { InMemoryWorkingMemory } from "./working/index.js";
 import { DefaultRetentionPolicy } from "./retention/index.js";
 import { IterativeRecaller } from "./iterative.js";
 import { buildExplainResult, spanTracker } from "./explain.js";
+import { MemoryFederation, SubscriptionRegistry } from "./federation.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -25,6 +26,7 @@ import type {
   MemoryEvent,
   MemoryLevel,
   MemoryNode,
+  MemorySlice,
   Modality,
   NodePatch,
   RawContent,
@@ -36,6 +38,8 @@ import type {
   RecordHandle,
   RetrievalQuery,
   RetrievalResult,
+  SubscribeFilter,
+  SubscriptionHandle,
   WriteOptions,
   WritePayload,
 } from "./types.js";
@@ -106,6 +110,8 @@ export class Memorai {
   private idleTimer?: ReturnType<typeof setTimeout>;
   private intervalTimer?: ReturnType<typeof setTimeout>;
   private evolveInFlight?: Promise<void>;
+  private readonly subscriptions = new SubscriptionRegistry();
+  readonly federation: MemoryFederation = new MemoryFederation();
 
   constructor(private readonly config: MemoraiConfig) {
     this.vectorIndex = config.vectorIndex;
@@ -971,6 +977,7 @@ export class Memorai {
     await this.upsertNodeTriples(segment);
     await this.evolution.processSegment(segment);
     await this.resyncVectorChainFromSegment(segment.id);
+    this.subscriptions.notify(segment);
     this.onAfterWrite();
 
     return segment;
@@ -1828,6 +1835,40 @@ export class Memorai {
     return event;
   }
 
+  /**
+   * Subscribe to newly-written memories that match a filter.
+   *
+   * When a node is written and passes the filter, `callback` is invoked
+   * with the node. Use this for reactive memory: agent A writes, agent B
+   * gets notified.
+   *
+   * Returns an {@link SubscriptionHandle} — call `unsubscribe()` to remove.
+   */
+  subscribe(filter: SubscribeFilter, callback: (node: MemoryNode) => void): SubscriptionHandle {
+    return this.subscriptions.subscribe(filter, callback);
+  }
+
+  /**
+   * Import a {@link MemorySlice} from another Memorai instance.
+   *
+   * Remaps IDs to avoid collisions, attaches provenance metadata, and
+   * writes all nodes (and events, if present) to local storage.
+   */
+  async mergeSlice(slice: MemorySlice): Promise<{ importedNodes: number; importedEvents: number }> {
+    const prepared = this.federation.prepareImport(slice);
+    for (const node of prepared.nodes) {
+      await this.config.storage.put(node);
+      await this.upsertNodeVector(node);
+    }
+    if (prepared.events) {
+      await this.eventStore.batchPutEvents(prepared.events);
+    }
+    return {
+      importedNodes: prepared.nodes.length,
+      importedEvents: prepared.events?.length ?? 0,
+    };
+  }
+
   /** Close all resources (storage, event store, background timers, etc.). */
   async close(): Promise<void> {
     this.clearIdleTimer();
@@ -2577,6 +2618,10 @@ export {
   ScalarQuantizer,
   type EmbeddingQuantizer,
 } from "./quantizer.js";
+export {
+  MemoryFederation,
+  SubscriptionRegistry,
+} from "./federation.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {
@@ -2584,10 +2629,13 @@ export type {
   AutoEvolveTriggers,
   ExplainResult,
   Extractor,
+  MemorySlice,
   NodePatch,
   RecallOptions,
   RecallResult,
   RecallSpan,
   RecalledMemory,
   RecordHandle,
+  SubscribeFilter,
+  SubscriptionHandle,
 } from "./types.js";
