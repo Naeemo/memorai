@@ -137,9 +137,25 @@ export function extractTemporalAnchors(text: string): TemporalAnchor[] {
     });
   }
 
+  // "since the X", "until the X", "around the X"
+  const sinceMatch = text.matchAll(
+    /\b(since|until|around|near)\s+(?:the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\b/gi,
+  );
+  for (const m of sinceMatch) {
+    const name = m[2].toLowerCase().trim().replace(/\s+/g, "-").replace(/^the-/, "");
+    if (seen.has(name)) continue;
+    seen.add(name);
+    anchors.push({
+      name,
+      type: "point",
+      label: `${m[1]} ${m[2]}`,
+      confidence: 0.5,
+    });
+  }
+
   // "the X meeting", "the X deadline", "the X milestone"
   const namedMatch = text.matchAll(
-    /\b(the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\s+(meeting|deadline|milestone|review|launch|migration)\b/gi,
+    /\b(the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\s+(meeting|deadline|milestone|review|launch|migration|event|party|trip|call|session)\b/gi,
   );
   for (const m of namedMatch) {
     const qualifier = m[2]?.trim().toLowerCase();
@@ -154,6 +170,11 @@ export function extractTemporalAnchors(text: string): TemporalAnchor[] {
       review: "range",
       launch: "point",
       migration: "range",
+      event: "point",
+      party: "range",
+      trip: "range",
+      call: "range",
+      session: "range",
     };
     anchors.push({
       name,

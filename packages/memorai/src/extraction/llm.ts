@@ -127,7 +127,7 @@ Guidance:
 - "tags" should be lowercase canonical entity / topic tokens — match the casing in "triples" so retrieval can cross-reference
 - "salience" is the agent's importance estimate: 0.9 for decisions / commitments / preferences that persist; 0.5 for routine facts; 0.2 for filler / acknowledgments
 - "triples" capture structured knowledge: (caroline, researched, "adoption agencies"), (caroline, attended_on, "2023-05-07"). Include "confidence" — lower when the relation is implied rather than stated
-- "temporalAnchors" identify named time references in the text that users might later query relative to: "before the migration", "after Alice arrived", "during the Q3 review". "name" should be a short canonical slug (lowercase, no spaces), "type" should be one of: point (instant), range (duration), deadline (fixed cutoff), milestone (significant event). Only include anchors that are clearly referenced in the text — do NOT invent them
+- "temporalAnchors" identify named time references in the text that users might later query relative to: "before the migration", "after Alice arrived", "during the Q3 review", "since the project started", "until the deadline". "name" should be a short canonical slug (lowercase, no spaces), "type" should be one of: point (instant), range (duration), deadline (fixed cutoff), milestone (significant event). Only include anchors that are clearly referenced in the text — do NOT invent them
 - omit a field if you'd be guessing; do NOT invent participants, dates, or relations not grounded in the event content
 
 EXAMPLE 1 — input:
