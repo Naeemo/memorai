@@ -12,6 +12,13 @@ export {
   type HnswWasmVectorIndexOptions,
 } from "./hnsw-wasm.js";
 export {
+  USearchVectorIndex,
+  loadUSearch,
+  type USearchIndex,
+  type USearchIndexOptions,
+  type USearchVectorIndexOptions,
+} from "./usearch.js";
+export {
   matchFilter,
   matchFilterClause,
   type VectorFilter,
