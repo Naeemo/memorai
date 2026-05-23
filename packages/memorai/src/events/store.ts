@@ -3,16 +3,27 @@ import { cosineSimilarity } from "../utils.js";
 import type { EventQueryOpts, EventStore, MemoryEvent, MemoryEventKind } from "../types.js";
 import type { VectorFilter, VectorIndex } from "../vector/types.js";
 
+interface NamespaceData {
+  byId: Map<string, MemoryEvent>;
+  byParticipant: Map<string, Set<string>>;
+  byTopic: Map<string, Set<string>>;
+  byKind: Map<MemoryEventKind, Set<string>>;
+  bm25: BM25Index;
+}
+
 /**
  * Default in-memory MemoryEvent store. Suitable for tests, single-process
  * agents, and benchmarks. Persistent backends can implement the same
  * `EventStore` interface against SQLite / IndexedDB / a vector DB.
  *
  * Indexing strategy:
- *   - participants / topics / kind → inverted maps for O(1) filter
- *   - description → BM25 for sparse retrieval
- *   - embedding → linear-scan cosine (fine up to ~10⁵ events; swap for ANN
+ *   - participants / topics / kind -> inverted maps for O(1) filter
+ *   - description -> BM25 for sparse retrieval
+ *   - embedding -> linear-scan cosine (fine up to ~10^5 events; swap for ANN
  *     when scale demands)
+ *
+ * When `namespace` is set, the store physically partitions data so that each
+ * namespace has its own isolated event set and indexes.
  *
  * Validity semantics:
  *   - `invalidatedAt` undefined means "still believed true"
@@ -21,24 +32,39 @@ import type { VectorFilter, VectorIndex } from "../vector/types.js";
  *     invalidatedAt set)
  */
 export class InMemoryEventStore implements EventStore {
-  private byId = new Map<string, MemoryEvent>();
-  private byParticipant = new Map<string, Set<string>>();
-  private byTopic = new Map<string, Set<string>>();
-  private byKind = new Map<MemoryEventKind, Set<string>>();
-  private bm25 = new BM25Index();
+  private readonly namespace: string | undefined;
+  private readonly partitions = new Map<string, NamespaceData>();
   private readonly vectorIndex?: VectorIndex;
 
-  constructor(opts: { vectorIndex?: VectorIndex } = {}) {
+  constructor(opts: { vectorIndex?: VectorIndex; namespace?: string } = {}) {
     this.vectorIndex = opts.vectorIndex;
+    this.namespace = opts.namespace;
+  }
+
+  private getData(): NamespaceData {
+    const key = this.namespace ?? "__default__";
+    let data = this.partitions.get(key);
+    if (!data) {
+      data = {
+        byId: new Map(),
+        byParticipant: new Map(),
+        byTopic: new Map(),
+        byKind: new Map(),
+        bm25: new BM25Index(),
+      };
+      this.partitions.set(key, data);
+    }
+    return data;
   }
 
   async putEvent(event: MemoryEvent): Promise<void> {
-    const existing = this.byId.get(event.id);
+    const d = this.getData();
+    const existing = d.byId.get(event.id);
     if (existing) {
-      this.unindex(existing);
+      this.unindex(d, existing);
     }
-    this.byId.set(event.id, event);
-    this.index(event);
+    d.byId.set(event.id, event);
+    this.index(d, event);
     if (this.vectorIndex && event.embedding) {
       await this.vectorIndex.upsert({
         id: event.id,
@@ -54,14 +80,15 @@ export class InMemoryEventStore implements EventStore {
   }
 
   async getEvent(id: string): Promise<MemoryEvent | null> {
-    return this.byId.get(id) ?? null;
+    return this.getData().byId.get(id) ?? null;
   }
 
   async deleteEvent(id: string): Promise<void> {
-    const ev = this.byId.get(id);
+    const d = this.getData();
+    const ev = d.byId.get(id);
     if (!ev) return;
-    this.unindex(ev);
-    this.byId.delete(id);
+    this.unindex(d, ev);
+    d.byId.delete(id);
     if (this.vectorIndex) await this.vectorIndex.delete(id);
   }
 
@@ -76,6 +103,7 @@ export class InMemoryEventStore implements EventStore {
     opts: EventQueryOpts & { topK?: number } = {},
   ): Promise<MemoryEvent[]> {
     const topK = opts.topK ?? opts.limit ?? 30;
+    const d = this.getData();
 
     if (this.vectorIndex) {
       const filter: VectorFilter = {};
@@ -89,7 +117,7 @@ export class InMemoryEventStore implements EventStore {
       });
       const events: MemoryEvent[] = [];
       for (const h of hits) {
-        const ev = this.byId.get(h.id);
+        const ev = d.byId.get(h.id);
         if (!ev) continue;
         if (!this.passesFilter(ev, opts)) continue;
         events.push(ev);
@@ -99,7 +127,7 @@ export class InMemoryEventStore implements EventStore {
     }
 
     const scored: Array<{ ev: MemoryEvent; score: number }> = [];
-    for (const ev of this.byId.values()) {
+    for (const ev of d.byId.values()) {
       if (!this.passesFilter(ev, opts)) continue;
       if (!ev.embedding) continue;
       const score = cosineSimilarity(embedding, ev.embedding);
@@ -114,10 +142,11 @@ export class InMemoryEventStore implements EventStore {
     opts: EventQueryOpts & { topK?: number } = {},
   ): Promise<MemoryEvent[]> {
     const topK = opts.topK ?? opts.limit ?? 30;
-    const hits = this.bm25.search(text, topK * 3);
+    const d = this.getData();
+    const hits = d.bm25.search(text, topK * 3);
     const events: MemoryEvent[] = [];
     for (const h of hits) {
-      const ev = this.byId.get(h.docId);
+      const ev = d.byId.get(h.docId);
       if (!ev) continue;
       if (!this.passesFilter(ev, opts)) continue;
       events.push(ev);
@@ -130,13 +159,15 @@ export class InMemoryEventStore implements EventStore {
     participant: string,
     opts: EventQueryOpts = {},
   ): Promise<MemoryEvent[]> {
-    const ids = this.byParticipant.get(participant.toLowerCase()) ?? new Set();
-    return this.materialize(ids, opts);
+    const d = this.getData();
+    const ids = d.byParticipant.get(participant.toLowerCase()) ?? new Set();
+    return this.materialize(d, ids, opts);
   }
 
   async queryEventsByTopic(topic: string, opts: EventQueryOpts = {}): Promise<MemoryEvent[]> {
-    const ids = this.byTopic.get(topic.toLowerCase()) ?? new Set();
-    return this.materialize(ids, opts);
+    const d = this.getData();
+    const ids = d.byTopic.get(topic.toLowerCase()) ?? new Set();
+    return this.materialize(d, ids, opts);
   }
 
   async queryEventsByTimeRange(
@@ -144,8 +175,9 @@ export class InMemoryEventStore implements EventStore {
     end: number,
     opts: EventQueryOpts = {},
   ): Promise<MemoryEvent[]> {
+    const d = this.getData();
     const events: MemoryEvent[] = [];
-    for (const ev of this.byId.values()) {
+    for (const ev of d.byId.values()) {
       if (ev.occurredAt < start || ev.occurredAt > end) continue;
       if (!this.passesFilter(ev, opts)) continue;
       events.push(ev);
@@ -154,8 +186,9 @@ export class InMemoryEventStore implements EventStore {
   }
 
   async listEvents(opts: EventQueryOpts = {}): Promise<MemoryEvent[]> {
+    const d = this.getData();
     const events: MemoryEvent[] = [];
-    for (const ev of this.byId.values()) {
+    for (const ev of d.byId.values()) {
       if (!this.passesFilter(ev, opts)) continue;
       events.push(ev);
     }
@@ -163,41 +196,37 @@ export class InMemoryEventStore implements EventStore {
   }
 
   async closeEventStore(): Promise<void> {
-    this.byId.clear();
-    this.byParticipant.clear();
-    this.byTopic.clear();
-    this.byKind.clear();
-    this.bm25 = new BM25Index();
+    this.partitions.clear();
     if (this.vectorIndex) await this.vectorIndex.clear();
   }
 
-  // ─── helpers ───
+  // --- helpers ---
 
-  private index(ev: MemoryEvent): void {
+  private index(d: NamespaceData, ev: MemoryEvent): void {
     for (const p of ev.participants) {
       const key = p.toLowerCase();
-      if (!this.byParticipant.has(key)) this.byParticipant.set(key, new Set());
-      this.byParticipant.get(key)!.add(ev.id);
+      if (!d.byParticipant.has(key)) d.byParticipant.set(key, new Set());
+      d.byParticipant.get(key)!.add(ev.id);
     }
     for (const t of ev.topics) {
       const key = t.toLowerCase();
-      if (!this.byTopic.has(key)) this.byTopic.set(key, new Set());
-      this.byTopic.get(key)!.add(ev.id);
+      if (!d.byTopic.has(key)) d.byTopic.set(key, new Set());
+      d.byTopic.get(key)!.add(ev.id);
     }
-    if (!this.byKind.has(ev.kind)) this.byKind.set(ev.kind, new Set());
-    this.byKind.get(ev.kind)!.add(ev.id);
-    this.bm25.put(ev.id, this.indexableText(ev));
+    if (!d.byKind.has(ev.kind)) d.byKind.set(ev.kind, new Set());
+    d.byKind.get(ev.kind)!.add(ev.id);
+    d.bm25.put(ev.id, this.indexableText(ev));
   }
 
-  private unindex(ev: MemoryEvent): void {
+  private unindex(d: NamespaceData, ev: MemoryEvent): void {
     for (const p of ev.participants) {
-      this.byParticipant.get(p.toLowerCase())?.delete(ev.id);
+      d.byParticipant.get(p.toLowerCase())?.delete(ev.id);
     }
     for (const t of ev.topics) {
-      this.byTopic.get(t.toLowerCase())?.delete(ev.id);
+      d.byTopic.get(t.toLowerCase())?.delete(ev.id);
     }
-    this.byKind.get(ev.kind)?.delete(ev.id);
-    this.bm25.remove(ev.id);
+    d.byKind.get(ev.kind)?.delete(ev.id);
+    d.bm25.remove(ev.id);
   }
 
   private indexableText(ev: MemoryEvent): string {
@@ -217,10 +246,10 @@ export class InMemoryEventStore implements EventStore {
     return true;
   }
 
-  private materialize(ids: Set<string>, opts: EventQueryOpts): MemoryEvent[] {
+  private materialize(d: NamespaceData, ids: Set<string>, opts: EventQueryOpts): MemoryEvent[] {
     const events: MemoryEvent[] = [];
     for (const id of ids) {
-      const ev = this.byId.get(id);
+      const ev = d.byId.get(id);
       if (!ev) continue;
       if (!this.passesFilter(ev, opts)) continue;
       events.push(ev);

@@ -26,8 +26,9 @@ export class IndexedDBAdapter implements StorageAdapter {
   private bm25 = new BM25Index();
   private bm25Hydrated = false;
 
-  constructor(opts: { dbName?: string } = {}) {
-    this.dbName = opts.dbName ?? "memorai";
+  constructor(opts: { dbName?: string; namespace?: string } = {}) {
+    const ns = opts.namespace ? `${opts.namespace}-` : "";
+    this.dbName = opts.dbName ?? `${ns}memorai`;
   }
 
   private getDb(): Promise<IDBDatabase> {
