@@ -193,7 +193,15 @@ export function composeIndexableText(
   const rawText = rawIndexableText(raw);
   if (rawText) parts.push(rawText);
   if (annotations) {
-    if (annotations.summary && !opts.coveredByEvent) parts.push(annotations.summary);
+    // Suppress summary when coveredByEvent is set (the canonical description
+    // lives in the MemoryEvent now) OR when a description already exists on
+    // the node itself — the two are usually semantic duplicates from the LLM
+    // extractor, and indexing both inflates BM25 + embedding noise (the -3.9pp
+    // `--extractor llm + --identifier llm` regression).
+    const hasDescription = !!annotations.description;
+    if (annotations.summary && !opts.coveredByEvent && !hasDescription) {
+      parts.push(annotations.summary);
+    }
     if (annotations.facts) parts.push(...annotations.facts);
     if (annotations.description) parts.push(annotations.description);
     if (annotations.tags && annotations.tags.length > 0) {
