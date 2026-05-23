@@ -13,6 +13,7 @@ import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
   CompressionService,
+  ContradictionResult,
   Event,
   EventIdentifier,
   EventStore,
@@ -133,7 +134,10 @@ export class Memorai {
     }
 
     this.eventStore =
-      config.events ?? new InMemoryEventStore({ vectorIndex: config.eventVectorIndex });
+      config.events ?? new InMemoryEventStore({
+        vectorIndex: config.eventVectorIndex,
+        namespace: config.namespace,
+      });
     if (config.identifier) {
       this.identifier = config.identifier;
     } else if (config.llm) {
@@ -411,12 +415,25 @@ export class Memorai {
   ): Promise<{ start: number; end: number } | null> {
     const lower = question.toLowerCase();
 
-    // Patterns: "before X", "after X", "during X"
-    const relativeMatch = lower.match(/\b(before|after|during)\s+(?:the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\b/);
+    // Expanded patterns: before/after/during/since/until/around
+    const relativeMatch = lower.match(
+      /\b(before|after|during|since|until|around|near)\s+(?:the\s+)?([a-zA-Z][a-zA-Z0-9\s_-]{2,40})\b/,
+    );
     if (!relativeMatch) return null;
 
-    const relation = relativeMatch[1] as "before" | "after" | "during";
-    const anchorName = relativeMatch[2].toLowerCase().trim().replace(/\s+/g, "-").replace(/^the-/, "");
+    const relation = relativeMatch[1] as
+      | "before"
+      | "after"
+      | "during"
+      | "since"
+      | "until"
+      | "around"
+      | "near";
+    const anchorName = relativeMatch[2]
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/^the-/, "");
 
     const nodes = await this.config.storage.queryByTemporalAnchor(anchorName, { limit: 10 });
     if (nodes.length === 0) return null;
@@ -437,14 +454,22 @@ export class Memorai {
     const now = Date.now();
     const anchorStart = bestAnchor.start ?? now;
     const anchorEnd = bestAnchor.end ?? anchorStart;
+    // Default margin for fuzzy relations ("around", "near")
+    const margin = 12 * 60 * 60 * 1000; // 12 hours
 
     switch (relation) {
       case "before":
         return { start: 0, end: anchorStart };
       case "after":
+      case "since":
         return { start: anchorEnd, end: now };
       case "during":
         return { start: anchorStart, end: anchorEnd };
+      case "until":
+        return { start: 0, end: anchorStart };
+      case "around":
+      case "near":
+        return { start: anchorStart - margin, end: anchorEnd + margin };
       default:
         return null;
     }
@@ -1361,12 +1386,35 @@ export class Memorai {
     return collected;
   }
 
+  /**
+   * Check whether a new assertion contradicts any currently-valid `state`
+   * events in the event store. Returns matches sorted by confidence
+   * descending.
+   *
+   * Requires `MemoraiConfig.contradictionDetector` (or `llm` for the
+   * built-in LLMContradictionDetector). Returns empty array when neither
+   * is configured.
+   */
+  async detectContradictions(opts: {
+    description: string;
+    participants?: string[];
+    topics?: string[];
+    userId?: string;
+  }): Promise<ContradictionResult[]> {
+    const detector = this.config.contradictionDetector;
+    if (!detector) {
+      return [];
+    }
+    return detector.detect(opts);
+  }
+
   private async identifyBatch(nodes: MemoryNode[]): Promise<MemoryEvent[]> {
     if (!this.identifier) return [];
 
     const relatedEvents = await this.fetchRelatedEvents(nodes);
 
     let identified: IdentifiedEvent[] = [];
+    let identifyFailed = false;
     try {
       identified = await this.identifier.identify({
         nodes,
@@ -1376,6 +1424,7 @@ export class Memorai {
         now: () => Date.now(),
       });
     } catch (err) {
+      identifyFailed = true;
       console.error("[Memorai] identifier.identify failed:", err);
     }
 
@@ -1394,6 +1443,9 @@ export class Memorai {
       // Stamp identifiedAt on every node so re-running the same batch
       // can't produce duplicate events for ones that succeeded.
       //
+      // If the identifier call itself failed (network error, etc.), skip
+      // stamping so the nodes are retried on the next evolve pass.
+      //
       // For nodes that ended up covered by an identified event, also
       // mark `meta.coveredByEvent = true` and re-embed without
       // `annotations.summary` — the event's canonical `description`
@@ -1401,48 +1453,50 @@ export class Memorai {
       // LLM-paraphrased summary alongside it inflated BM25 + embedding
       // duplication (the -3.9pp `--extractor llm + --identifier llm`
       // regression we tracked in 0.4.0's published benchmarks).
-      const stamp = Date.now();
-      const coveredIds = new Set<string>();
-      for (const ev of produced) {
-        for (const sid of ev.sourceNodeIds) coveredIds.add(sid);
-      }
-
-      const toReembed: { node: MemoryNode; text: string }[] = [];
-      for (const node of nodes) {
-        node.meta.identifiedAt = stamp;
-        if (coveredIds.has(node.id) && !node.meta.coveredByEvent) {
-          node.meta.coveredByEvent = true;
-          const text = composeIndexableText(node.raw, node.annotations, {
-            coveredByEvent: true,
-          });
-          if (text) toReembed.push({ node, text });
+      if (!identifyFailed) {
+        const stamp = Date.now();
+        const coveredIds = new Set<string>();
+        for (const ev of produced) {
+          for (const sid of ev.sourceNodeIds) coveredIds.add(sid);
         }
-      }
 
-      // Batch-embed the covered subset when the embedding service supports
-      // it — one round trip beats N for typical batch sizes.
-      if (toReembed.length > 0) {
-        try {
-          const e = this.config.embedding;
-          const embeddings = e.embedBatch
-            ? await e.embedBatch(toReembed.map((t) => t.text))
-            : await Promise.all(toReembed.map((t) => e.embed(t.text)));
-          for (let i = 0; i < toReembed.length; i++) {
-            toReembed[i].node.annotations.embedding = embeddings[i];
+        const toReembed: { node: MemoryNode; text: string }[] = [];
+        for (const node of nodes) {
+          node.meta.identifiedAt = stamp;
+          if (coveredIds.has(node.id) && !node.meta.coveredByEvent) {
+            node.meta.coveredByEvent = true;
+            const text = composeIndexableText(node.raw, node.annotations, {
+              coveredByEvent: true,
+            });
+            if (text) toReembed.push({ node, text });
           }
-        } catch (err) {
-          console.error("[Memorai] re-embed covered nodes failed:", err);
         }
-      }
 
-      for (const node of nodes) {
-        try {
-          await this.config.storage.put(node);
-          if (this.vectorIndex && coveredIds.has(node.id)) {
-            await this.upsertNodeVector(node);
+        // Batch-embed the covered subset when the embedding service supports
+        // it — one round trip beats N for typical batch sizes.
+        if (toReembed.length > 0) {
+          try {
+            const e = this.config.embedding;
+            const embeddings = e.embedBatch
+              ? await e.embedBatch(toReembed.map((t) => t.text))
+              : await Promise.all(toReembed.map((t) => e.embed(t.text)));
+            for (let i = 0; i < toReembed.length; i++) {
+              toReembed[i].node.annotations.embedding = embeddings[i];
+            }
+          } catch (err) {
+            console.error("[Memorai] re-embed covered nodes failed:", err);
           }
-        } catch (err) {
-          console.error("[Memorai] persist covered/identified node failed:", err);
+        }
+
+        for (const node of nodes) {
+          try {
+            await this.config.storage.put(node);
+            if (this.vectorIndex && coveredIds.has(node.id)) {
+              await this.upsertNodeVector(node);
+            }
+          } catch (err) {
+            console.error("[Memorai] persist covered/identified node failed:", err);
+          }
         }
       }
     }
@@ -2530,10 +2584,20 @@ export {
   type CrossEncoderScoreFn,
 } from "./reranker-transformers.js";
 export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
-export { OllamaEmbeddingService, OpenAIEmbeddingService } from "./embeddings/index.js";
+export {
+  CLIPEmbedder,
+  OllamaEmbeddingService,
+  OpenAIEmbeddingService,
+} from "./embeddings/index.js";
 export { EvolutionEngine } from "./evolution.js";
 export { RetrievalEngine, extractEntityTokens } from "./retrieval.js";
-export { InMemoryEventStore, LLMEventIdentifier, SQLiteEventStore } from "./events/index.js";
+export {
+  InMemoryEventStore,
+  LLMEventIdentifier,
+  SQLiteEventStore,
+  IndexedDBEventStore,
+} from "./events/index.js";
+export { LLMContradictionDetector } from "./contradiction.js";
 export {
   BrowserImageCompressor,
   PassthroughCompressor,
@@ -2559,14 +2623,19 @@ export {
   BruteForceVectorIndex,
   HnswVectorIndex,
   HnswWasmVectorIndex,
+  USearchVectorIndex,
   loadHnswlib,
   loadHnswWasm,
+  loadUSearch,
   matchFilter,
   matchFilterClause,
   type HnswlibIndex,
   type HnswVectorIndexOptions,
   type HnswWasmIndex,
   type HnswWasmVectorIndexOptions,
+  type USearchIndex,
+  type USearchIndexOptions,
+  type USearchVectorIndexOptions,
   type VectorFilter,
   type VectorFilterClause,
   type VectorIndex,
