@@ -437,6 +437,36 @@ export interface RerankerService {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Contradiction Detection
+// ─────────────────────────────────────────────────────────────
+
+export interface ContradictionResult {
+  /** The existing event that contradicts the new assertion. */
+  eventId: string;
+  /** Description of the contradicted event. */
+  description: string;
+  /** Confidence that this is a genuine contradiction [0,1]. */
+  confidence: number;
+}
+
+export interface ContradictionDetector {
+  /**
+   * Check whether a new assertion contradicts any currently-valid
+   * `state` events. Returns matches sorted by confidence descending.
+   */
+  detect(opts: {
+    /** The new assertion to check. */
+    description: string;
+    /** Participants the assertion is about. */
+    participants?: string[];
+    /** Topics the assertion covers. */
+    topics?: string[];
+    /** Tenant scope. */
+    userId?: string;
+  }): Promise<ContradictionResult[]>;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Evolution
 // ─────────────────────────────────────────────────────────────
 
@@ -877,6 +907,13 @@ export interface MemoraiConfig {
    * that uses MemoraiConfig.llm.
    */
   reranker?: RerankerService;
+  /**
+   * Optional contradiction detector. When set, `detectContradictions()`
+   * checks new assertions against currently-valid `state` events and
+   * surfaces conflicts before they are committed. See
+   * LLMContradictionDetector for a built-in that uses MemoraiConfig.llm.
+   */
+  contradictionDetector?: ContradictionDetector;
   /**
    * Optional vector index for node embeddings. When set, the semantic
    * retrieval pathway uses it instead of `storage.listAll() + cosine`,
