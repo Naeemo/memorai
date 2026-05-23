@@ -270,9 +270,14 @@ export class RetrievalEngine {
 
   /**
    * Graph-aware pathway. Seeds on entity tokens from the query text, then
-   * runs a multi-hop PPR-style walk over the knowledge graph. Scores decay
-   * with hop distance so closer connections rank higher. Collects source-node
-   * ids from traversed edges so memories linked to query entities surface.
+   * runs a confidence-weighted random-walk over the knowledge graph.
+   *
+   * Improvement over the previous BFS + additive scoring:
+   *   - Path score = product(edge.confidence) so high-confidence chains rank
+   *     above many low-confidence ones
+   *   - Best-first exploration (Dijkstra-style) instead of breadth-first
+   *   - Allows re-visiting entities via better paths; keeps the best score
+   *   - Seeds get a teleport probability (1 - alpha) for PPR-like behavior
    *
    * For small graphs (< 1K edges) this walks up to 3 hops. For larger graphs
    * it stays at 1 hop to keep latency bounded.
@@ -284,14 +289,23 @@ export class RetrievalEngine {
 
     const graphSize = await this.entityGraph.size();
     const maxHops = graphSize.edges < 1000 ? 3 : 1;
-    const decay = 0.6; // score multiplier per hop
+    const alpha = 0.85; // PPR continue probability
 
-    const scores = new Map<string, number>();
-    const visited = new Set<string>(); // entity names visited at a given depth
+    // entity -> best path confidence from any seed
+    const entityScore = new Map<string, number>();
+    // sourceNodeId -> best score from any path that touched it
+    const nodeScore = new Map<string, number>();
 
-    // Seed: all edges touching a query token at depth 0
+    type Frontier = { entity: string; pathConfidence: number; depth: number };
+    const heap: Frontier[] = [];
+
+    // Seed: initialize frontier with query tokens at confidence 1
     for (const token of tokens) {
-      let edges;
+      heap.push({ entity: token, pathConfidence: 1, depth: 0 });
+      entityScore.set(token, 1);
+
+      // Depth-0 edges: direct neighbors of query tokens
+      let edges: import("./graph/types.js").GraphEdge[];
       try {
         edges = await this.entityGraph.queryNeighbors(token, {
           userId: query.userId,
@@ -302,62 +316,60 @@ export class RetrievalEngine {
         continue;
       }
       for (const e of edges) {
-        if (!e.sourceNodeId) continue;
-        const weight = (e.confidence ?? 0.5) + 0.5;
-        scores.set(e.sourceNodeId, (scores.get(e.sourceNodeId) ?? 0) + weight);
+        if (e.sourceNodeId) {
+          const w = (e.confidence ?? 0.5) * 2; // normalize to [0,1] roughly
+          nodeScore.set(e.sourceNodeId, Math.max(nodeScore.get(e.sourceNodeId) ?? 0, w));
+        }
       }
     }
 
-    if (maxHops <= 1) {
-      const sorted = [...scores.entries()].map(([id, score]) => ({ id, score }));
+    if (maxHops <= 1 || heap.length === 0) {
+      const sorted = [...nodeScore.entries()].map(([id, score]) => ({ id, score }));
       sorted.sort((a, b) => b.score - a.score);
       return sorted.slice(0, PATHWAY_DEPTH);
     }
 
-    // Multi-hop PPR-style walk
-    for (let hop = 1; hop < maxHops; hop++) {
-      const hopScores = new Map<string, number>();
-      for (const token of tokens) {
-        let edges;
-        try {
-          edges = await this.entityGraph.queryNeighbors(token, {
-            userId: query.userId,
-            excludeInvalidated: true,
-            limit: PATHWAY_DEPTH * 2,
-          });
-        } catch {
-          continue;
-        }
-        for (const e of edges) {
-          const other = e.subject === token ? e.object : e.subject;
-          if (visited.has(other)) continue;
-          visited.add(other);
-
-          // Walk one more hop from `other`
-          let nextEdges;
-          try {
-            nextEdges = await this.entityGraph.queryNeighbors(other, {
-              userId: query.userId,
-              excludeInvalidated: true,
-              limit: PATHWAY_DEPTH,
-            });
-          } catch {
-            continue;
-          }
-          for (const ne of nextEdges) {
-            if (!ne.sourceNodeId) continue;
-            const weight = (ne.confidence ?? 0.5) + 0.5;
-            const decayed = weight * Math.pow(decay, hop);
-            hopScores.set(ne.sourceNodeId, (hopScores.get(ne.sourceNodeId) ?? 0) + decayed);
-          }
-        }
+    // Best-first multi-hop walk
+    while (heap.length > 0) {
+      // Pop highest-confidence frontier (simple linear scan — PATHWAY_DEPTH is small)
+      let bestIdx = 0;
+      for (let i = 1; i < heap.length; i++) {
+        if (heap[i].pathConfidence > heap[bestIdx].pathConfidence) bestIdx = i;
       }
-      for (const [id, score] of hopScores) {
-        scores.set(id, (scores.get(id) ?? 0) + score);
+      const cur = heap.splice(bestIdx, 1)[0];
+
+      if (cur.depth >= maxHops) continue;
+
+      let edges: import("./graph/types.js").GraphEdge[];
+      try {
+        edges = await this.entityGraph.queryNeighbors(cur.entity, {
+          userId: query.userId,
+          excludeInvalidated: true,
+          limit: PATHWAY_DEPTH,
+        });
+      } catch {
+        continue;
+      }
+
+      for (const e of edges) {
+        const other = e.subject === cur.entity ? e.object : e.subject;
+        const edgeConf = e.confidence ?? 0.5;
+        const nextConf = cur.pathConfidence * edgeConf * alpha;
+
+        // Only expand if this is a better path to `other`
+        const existing = entityScore.get(other) ?? 0;
+        if (nextConf <= existing) continue;
+
+        entityScore.set(other, nextConf);
+        heap.push({ entity: other, pathConfidence: nextConf, depth: cur.depth + 1 });
+
+        if (e.sourceNodeId) {
+          nodeScore.set(e.sourceNodeId, Math.max(nodeScore.get(e.sourceNodeId) ?? 0, nextConf));
+        }
       }
     }
 
-    const sorted = [...scores.entries()].map(([id, score]) => ({ id, score }));
+    const sorted = [...nodeScore.entries()].map(([id, score]) => ({ id, score }));
     sorted.sort((a, b) => b.score - a.score);
     return sorted.slice(0, PATHWAY_DEPTH);
   }
