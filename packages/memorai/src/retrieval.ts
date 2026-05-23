@@ -1,6 +1,8 @@
 import { cosineSimilarity } from "./utils.js";
 import type {
+  IntentClassifier,
   MemoryNode,
+  QueryIntent,
   RetrievalQuery,
   RetrievalResult,
   RetrievalStrategy,
@@ -88,18 +90,22 @@ export class RetrievalEngine {
   }
 
   private countActivePathways(query: RetrievalQuery, traversal: TraversalOrder): number {
+    const intent = query.intent ?? "unknown";
     let n = 0;
-    if (query.embedding) n += 1;
+    if (query.embedding && pathwayMatchesIntent("semantic", intent)) n += 1;
     if (query.text) {
-      n += 2; // bm25 + tag
-      if (this.entityGraph) n += 1; // graph
-      n += 1; // temporalAnchor
+      if (pathwayMatchesIntent("bm25", intent)) n += 1;
+      if (pathwayMatchesIntent("tag", intent)) n += 1;
+      if (this.entityGraph && pathwayMatchesIntent("graph", intent)) n += 1;
+      if (pathwayMatchesIntent("temporalAnchor", intent)) n += 1;
     }
-    if (query.timeRange) n += 1;
-    if (query.strategy === "exploratory" || traversal === "salience") n += 1;
-    if (query.userId) n += 1;
-    if (query.actor) n += 1;
-    if (query.target) n += 1;
+    if (query.timeRange && pathwayMatchesIntent("time", intent)) n += 1;
+    if ((query.strategy === "exploratory" || traversal === "salience") && pathwayMatchesIntent("salience", intent)) {
+      n += 1;
+    }
+    if (query.userId && pathwayMatchesIntent("identity", intent)) n += 1;
+    if (query.actor && pathwayMatchesIntent("identity", intent)) n += 1;
+    if (query.target && pathwayMatchesIntent("identity", intent)) n += 1;
     return Math.max(1, n);
   }
 
@@ -114,34 +120,44 @@ export class RetrievalEngine {
     const tasks: Array<Promise<{ name: string; ranked: Array<{ id: string; score: number }> }>> =
       [];
 
-    if (query.embedding) {
+    // S1: Adaptive pathway selection — skip pathways irrelevant to query intent.
+    const intent = query.intent ?? "unknown";
+    const shouldRun = (pathway: string) => pathwayMatchesIntent(pathway, intent);
+
+    if (query.embedding && shouldRun("semantic")) {
       tasks.push(this.runPathway("semantic", () => this.semanticPathway(query)));
     }
     if (query.text) {
-      tasks.push(this.runPathway("bm25", () => this.bm25Pathway(query)));
-      tasks.push(this.runPathway("tag", () => this.tagPathway(query)));
-      if (this.entityGraph) {
+      if (shouldRun("bm25")) {
+        tasks.push(this.runPathway("bm25", () => this.bm25Pathway(query)));
+      }
+      if (shouldRun("tag")) {
+        tasks.push(this.runPathway("tag", () => this.tagPathway(query)));
+      }
+      if (this.entityGraph && shouldRun("graph")) {
         tasks.push(this.runPathway("graph", () => this.graphPathway(query)));
       }
-      tasks.push(this.runPathway("temporalAnchor", () => this.temporalAnchorPathway(query)));
+      if (shouldRun("temporalAnchor")) {
+        tasks.push(this.runPathway("temporalAnchor", () => this.temporalAnchorPathway(query)));
+      }
     }
-    if (query.timeRange) {
+    if (query.timeRange && shouldRun("time")) {
       tasks.push(
         this.runPathway("time", () =>
           this.timePathway(query.timeRange!.start, query.timeRange!.end),
         ),
       );
     }
-    if (query.strategy === "exploratory" || traversal === "salience") {
+    if ((query.strategy === "exploratory" || traversal === "salience") && shouldRun("salience")) {
       tasks.push(this.runPathway("salience", () => this.saliencePathway()));
     }
-    if (query.userId) {
+    if (query.userId && shouldRun("identity")) {
       tasks.push(this.runPathway("userId", () => this.identityPathway("userId", query.userId!)));
     }
-    if (query.actor) {
+    if (query.actor && shouldRun("identity")) {
       tasks.push(this.runPathway("actor", () => this.identityPathway("actor", query.actor!)));
     }
-    if (query.target) {
+    if (query.target && shouldRun("identity")) {
       tasks.push(this.runPathway("target", () => this.identityPathway("target", query.target!)));
     }
 
@@ -683,4 +699,78 @@ export function extractEntityTokens(text: string): string[] {
     out.push(token);
   }
   return out;
+}
+
+// ─── S1: Adaptive Pathway Selection ───
+
+/** Which pathways should run for a given query intent? */
+function pathwayMatchesIntent(pathway: string, intent: QueryIntent): boolean {
+  // "unknown" and "multi-hop" run everything (no filtering).
+  if (intent === "unknown" || intent === "multi-hop") return true;
+
+  switch (intent) {
+    case "identity":
+      // Identity queries need semantic, bm25, identity pathways, light graph.
+      return ["semantic", "bm25", "tag", "graph", "identity", "salience", "fallback"].includes(
+        pathway,
+      );
+    case "temporal":
+      // Temporal queries need time-based pathways + semantic/bm25 for content.
+      return ["semantic", "bm25", "tag", "temporalAnchor", "time", "salience", "fallback"].includes(
+        pathway,
+      );
+    case "procedural":
+      // Procedural queries need semantic, bm25, tag — graph rarely helps.
+      return ["semantic", "bm25", "tag", "salience", "fallback"].includes(pathway);
+    case "factual":
+      // Factual queries benefit from most pathways. time and identity are
+      // already gated by query.timeRange / query.userId in buildCandidateSet.
+      return [
+        "semantic",
+        "bm25",
+        "tag",
+        "graph",
+        "temporalAnchor",
+        "time",
+        "identity",
+        "salience",
+        "fallback",
+      ].includes(pathway);
+    default:
+      return true;
+  }
+}
+
+/** Keyword-based intent classifier — zero latency, no external calls. */
+export class RuleBasedIntentClassifier implements IntentClassifier {
+  async classify(queryText: string): Promise<{ intent: QueryIntent; confidence: number }> {
+    const lower = queryText.toLowerCase();
+
+    // Temporal indicators
+    if (
+      /\b(before|after|during|since|until|around|near|yesterday|today|tomorrow|last week|last month|ago|\d+\s+(minute|hour|day|week|month|year)s?\s+ago)\b/.test(
+        lower,
+      )
+    ) {
+      return { intent: "temporal", confidence: 0.85 };
+    }
+
+    // Procedural indicators
+    if (/\b(how\s+(to|do|can|should)|deploy|run|install|setup|configure|build|execute|command)\b/.test(lower)) {
+      return { intent: "procedural", confidence: 0.8 };
+    }
+
+    // Identity indicators
+    if (/\b(who|what\s+does|what\s+is|likes?|prefers?|favorite|name|age|job|works?\s+at)\b/.test(lower)) {
+      return { intent: "identity", confidence: 0.75 };
+    }
+
+    // Multi-hop indicators
+    if (/\b(why|because|since|reason|caused|led\s+to|resulted\s+in|who\s+.*\s+where|what\s+.*\s+when)\b/.test(lower)) {
+      return { intent: "multi-hop", confidence: 0.7 };
+    }
+
+    // Default: factual
+    return { intent: "factual", confidence: 0.6 };
+  }
 }

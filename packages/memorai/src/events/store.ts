@@ -185,6 +185,25 @@ export class InMemoryEventStore implements EventStore {
     return this.applyOrderAndPagination(events, opts);
   }
 
+  async queryEventsByValidTime(
+    start: number,
+    end: number,
+    opts: EventQueryOpts = {},
+  ): Promise<MemoryEvent[]> {
+    const d = this.getData();
+    const events: MemoryEvent[] = [];
+    for (const ev of d.byId.values()) {
+      if (!this.passesFilter(ev, opts)) continue;
+      const vs = ev.validity?.validStart ?? ev.occurredAt;
+      const ve = ev.validity?.validEnd;
+      // Overlap: validStart <= end AND (validEnd is null OR validEnd >= start)
+      if (vs > end) continue;
+      if (ve !== undefined && ve < start) continue;
+      events.push(ev);
+    }
+    return this.applyOrderAndPagination(events, opts);
+  }
+
   async listEvents(opts: EventQueryOpts = {}): Promise<MemoryEvent[]> {
     const d = this.getData();
     const events: MemoryEvent[] = [];

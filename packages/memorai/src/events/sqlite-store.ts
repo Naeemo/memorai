@@ -270,6 +270,39 @@ export class SQLiteEventStore implements EventStore {
     return this.materializeAndPaginate(rows, opts);
   }
 
+  async queryEventsByValidTime(
+    start: number,
+    end: number,
+    opts: EventQueryOpts = {},
+  ): Promise<MemoryEvent[]> {
+    // Validity lives inside the JSON blob — scan all rows and filter in JS.
+    const rows = this.listStmt.all() as Array<{ json: string }>;
+    let events = rows.map((r) => this.parse(r.json)).filter((e) => this.passesFilter(e, opts));
+    events = events.filter((ev) => {
+      const vs = ev.validity?.validStart ?? ev.occurredAt;
+      const ve = ev.validity?.validEnd;
+      if (vs > end) return false;
+      if (ve !== undefined && ve < start) return false;
+      return true;
+    });
+    return this.applyOrderAndPagination(events, opts);
+  }
+
+  private applyOrderAndPagination(events: MemoryEvent[], opts: EventQueryOpts): MemoryEvent[] {
+    if (opts.orderBy) {
+      const orderBy = opts.orderBy;
+      const order = opts.order ?? "desc";
+      events.sort((a, b) => {
+        const va = this.orderKey(a, orderBy);
+        const vb = this.orderKey(b, orderBy);
+        return order === "asc" ? va - vb : vb - va;
+      });
+    }
+    const start = opts.offset ?? 0;
+    const end = opts.limit !== undefined ? start + opts.limit : events.length;
+    return events.slice(start, end);
+  }
+
   async listEvents(opts: EventQueryOpts = {}): Promise<MemoryEvent[]> {
     let rows: Array<{ json: string }>;
     if (opts.kind) {

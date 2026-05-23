@@ -316,6 +316,22 @@ export class IndexedDBEventStore implements EventStore {
     });
   }
 
+  async queryEventsByValidTime(
+    _start: number,
+    _end: number,
+    opts: EventQueryOpts = {},
+  ): Promise<MemoryEvent[]> {
+    // Validity lives inside stored event objects — full scan required.
+    const all = await this.listEvents(opts);
+    return all.filter((ev) => {
+      const vs = ev.validity?.validStart ?? ev.occurredAt;
+      const ve = ev.validity?.validEnd;
+      if (vs > _end) return false;
+      if (ve !== undefined && ve < _start) return false;
+      return true;
+    });
+  }
+
   async listEvents(opts: EventQueryOpts = {}): Promise<MemoryEvent[]> {
     const db = await this.getDb();
     return new Promise((resolve, reject) => {

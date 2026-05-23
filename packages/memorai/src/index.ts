@@ -1,6 +1,9 @@
 import { EvolutionEngine } from "./evolution.js";
-import { RetrievalEngine } from "./retrieval.js";
-import { generateId } from "./utils.js";
+import { ReflectionEngine } from "./reflection.js";
+import { RetrievalEngine, RuleBasedIntentClassifier } from "./retrieval.js";
+import { InMemorySkillStore, SkillExtractor } from "./skills/index.js";
+import type { ProceduralSkill, SkillExtractionOptions, SkillExtractionResult, SkillStore } from "./skills/index.js";
+import { cosineSimilarity, generateId } from "./utils.js";
 import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction/index.js";
 import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
 import { resolveTimeExpression } from "./temporal/index.js";
@@ -9,6 +12,7 @@ import { DefaultRetentionPolicy } from "./retention/index.js";
 import { IterativeRecaller } from "./iterative.js";
 import { buildExplainResult, spanTracker } from "./explain.js";
 import { MemoryFederation, SubscriptionRegistry } from "./federation.js";
+import { NarrativeBuilder } from "./narrative.js";
 import type {
   AgentMemoryProfile,
   AutoEvolveTriggers,
@@ -20,6 +24,7 @@ import type {
   ExplainResult,
   Extractor,
   IdentifiedEvent,
+  IntentClassifier,
   ListOptions,
   MediaPayload,
   MemoraiConfig,
@@ -29,9 +34,15 @@ import type {
   MemoryNode,
   MemorySlice,
   Modality,
+  NarrativeRecall,
   NodePatch,
+  QueryIntent,
   RawContent,
   ReAnnotateOptions,
+  ReflectOptions,
+  ReflectionResult,
+  SleepOptions,
+  SleepResult,
   ReAnnotateResult,
   RecallOptions,
   RecallResult,
@@ -96,6 +107,7 @@ export class Memorai {
   private readonly identifier?: EventIdentifier;
   private readonly vectorIndex?: VectorIndex;
   private readonly entityGraph?: EntityGraph;
+  private readonly skillStore: SkillStore;
   /**
    * Fast typed scratchpad for short-lived agent state — current task,
    * pending tool args, in-flight beliefs. Defaults to an in-memory
@@ -104,6 +116,7 @@ export class Memorai {
    */
   readonly workingMemory: WorkingMemory;
   private readonly retentionPolicy: RetentionPolicy;
+  private readonly intentClassifier: IntentClassifier;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
   private writesSinceEvolve = 0;
@@ -117,6 +130,7 @@ export class Memorai {
   constructor(private readonly config: MemoraiConfig) {
     this.vectorIndex = config.vectorIndex;
     this.entityGraph = config.entityGraph;
+    this.skillStore = config.skillStore ?? new InMemorySkillStore();
     this.workingMemory = config.workingMemory ?? new InMemoryWorkingMemory();
     this.retentionPolicy = config.retentionPolicy ?? new DefaultRetentionPolicy();
     this.retrieval = new RetrievalEngine(config.storage, this.vectorIndex, this.entityGraph);
@@ -124,6 +138,7 @@ export class Memorai {
     this.agentProfile = config.agentProfile ?? DEFAULT_AGENT_PROFILE;
     this.evolveMode = config.evolution?.mode ?? "auto";
     this.triggers = { ...DEFAULT_TRIGGERS, ...config.evolution?.autoTriggers };
+    this.intentClassifier = config.intentClassifier ?? new RuleBasedIntentClassifier();
 
     if (config.extractor) {
       this.extractor = config.extractor;
@@ -263,10 +278,16 @@ export class Memorai {
       opts.resolveTime && !opts.timeRange ? await this.applyTemporalResolution(question, opts) : opts;
     endTemporal();
 
+    // S1: Adaptive pathway selection — classify query intent before retrieval.
+    const endIntent = tracker.start("intent-classification");
+    const { intent } = await this.intentClassifier.classify(question);
+    endIntent();
+
     const eventsEnabled = effectiveOpts.includeEvents !== false && this.identifier !== undefined;
 
-    const endNodes = tracker.start("node-recall", { variants: 0 });
-    const nodeResult = await this.recallNodes(question, effectiveOpts, preRerankTopK);
+    const endNodes = tracker.start("node-recall", { variants: 0, intent });
+    const nodeResult = await this.recallNodes(question, effectiveOpts, preRerankTopK, intent);
+    endNodes();
     endNodes();
 
     let eventMemories: RecalledMemory[] = [];
@@ -540,18 +561,19 @@ export class Memorai {
     question: string,
     opts: RecallOptions,
     preRerankTopK: number,
+    intent?: QueryIntent,
   ): Promise<RecallResult> {
     const variants = await this.expandRecallQueries(question, opts);
 
     if (variants.length === 1) {
-      const query = this.buildRecallQuery(question, { ...opts, topK: preRerankTopK });
+      const query = this.buildRecallQuery(question, { ...opts, topK: preRerankTopK }, intent);
       const result = await this.retrieve(query);
       return this.toRecallResult(result);
     }
 
     const subResults = await Promise.all(
       variants.map((v) => {
-        const q = this.buildRecallQuery(v.text, { ...opts, topK: preRerankTopK });
+        const q = this.buildRecallQuery(v.text, { ...opts, topK: preRerankTopK }, intent);
         if (v.embedding) q.embedding = v.embedding;
         return this.retrieve(q).then((r) => ({ tag: v.tag, result: r }));
       }),
@@ -582,10 +604,36 @@ export class Memorai {
 
     const queryEmbedding = await this.config.embedding.embed(question);
 
-    const [semanticHits, textHits] = await Promise.all([
-      this.eventStore.queryEventsByEmbedding(queryEmbedding, eventQueryOpts),
-      this.eventStore.queryEventsByText(question, eventQueryOpts),
-    ]);
+    let semanticHits: MemoryEvent[];
+    let textHits: MemoryEvent[];
+
+    // S6: Bi-temporal — when validAt is set, filter by validity window.
+    if (opts.validAt !== undefined) {
+      const validTimeRange = { start: opts.validAt - 1, end: opts.validAt + 1 };
+      const [s, t] = await Promise.all([
+        this.eventStore.queryEventsByEmbedding(queryEmbedding, { ...eventQueryOpts, ...validTimeRange }),
+        this.eventStore.queryEventsByText(question, { ...eventQueryOpts, ...validTimeRange }),
+      ]);
+      semanticHits = s.filter((ev) => {
+        const vs = ev.validity?.validStart ?? ev.occurredAt;
+        const ve = ev.validity?.validEnd;
+        if (vs > opts.validAt!) return false;
+        if (ve !== undefined && ve < opts.validAt!) return false;
+        return true;
+      });
+      textHits = t.filter((ev) => {
+        const vs = ev.validity?.validStart ?? ev.occurredAt;
+        const ve = ev.validity?.validEnd;
+        if (vs > opts.validAt!) return false;
+        if (ve !== undefined && ve < opts.validAt!) return false;
+        return true;
+      });
+    } else {
+      [semanticHits, textHits] = await Promise.all([
+        this.eventStore.queryEventsByEmbedding(queryEmbedding, eventQueryOpts),
+        this.eventStore.queryEventsByText(question, eventQueryOpts),
+      ]);
+    }
 
     const RRF_K = 60;
     const fused = new Map<
@@ -1106,6 +1154,80 @@ export class Memorai {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // Reflection (S5)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Generative reflection — ask the LLM to form new insights from patterns
+   * across recent events. Unlike `evolve()` which is extractive (compresses
+   * existing nodes), reflection is generative: it produces beliefs that were
+   * never explicitly stated in any single event.
+   *
+   * Returns newly-generated `state` MemoryEvents plus a list of existing
+   * events that were reinterpreted. Insights are automatically persisted to
+   * the event store.
+   *
+   * Requires `MemoraiConfig.llm`. Returns empty result when no LLM is configured.
+   */
+  async reflect(opts: ReflectOptions = {}): Promise<ReflectionResult> {
+    if (!this.config.llm) {
+      return { insights: [], revisedEvents: [] };
+    }
+    const engine = new ReflectionEngine({ eventStore: this.eventStore, llm: this.config.llm });
+    const result = await engine.reflect(opts);
+    // Persist generated insights.
+    for (const insight of result.insights) {
+      await this.eventStore.putEvent(insight);
+    }
+    return result;
+  }
+
+  /**
+   * Structured episodic recall — returns a narrative arc instead of a flat
+   * memory list. Events are assigned roles (setup, trigger, response, climax,
+   * resolution) and causal connections are identified.
+   *
+   * Requires `MemoraiConfig.llm` for full narrative structuring. Without an
+   * LLM, falls back to a simple chronological ordering with heuristic role
+   * assignment.
+   */
+  async recallNarrative(question: string, opts: RecallOptions = {}): Promise<NarrativeRecall> {
+    const recallResult = await this.recall(question, opts);
+    const builder = new NarrativeBuilder(this.config.llm);
+    return builder.build(recallResult, question);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Procedural Skills (S2)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Extract reusable procedural skills from recent tool_call memory nodes.
+   * Scans for repeated tool invocation patterns with high success rates
+   * and turns them into `ProceduralSkill` templates.
+   *
+   * Returns the extracted skills plus the IDs of nodes that were consumed.
+   * Skills are automatically stored in `MemoraiConfig.skillStore`.
+   */
+  async extractSkills(opts: SkillExtractionOptions = {}): Promise<SkillExtractionResult> {
+    const all = await this.config.storage.listAll();
+    const extractor = new SkillExtractor();
+    const result = extractor.extract(all, opts);
+    for (const skill of result.skills) {
+      await this.skillStore.put(skill);
+    }
+    return result;
+  }
+
+  /**
+   * Recall procedural skills that match a natural-language query.
+   * Uses substring/overlap matching against skill triggers.
+   */
+  async recallSkills(query: string, topK = 5): Promise<ProceduralSkill[]> {
+    return this.skillStore.queryByTrigger(query, topK);
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // Evolution
   // ═══════════════════════════════════════════════════════════
 
@@ -1215,6 +1337,8 @@ export class Memorai {
       participant?: string;
       topic?: string;
       limit?: number;
+      /** S6: query facts that were valid at this point in time. */
+      validAt?: number;
     } = {},
   ): Promise<MemoryEvent[]> {
     let candidates: MemoryEvent[];
@@ -1245,6 +1369,17 @@ export class Memorai {
     if (opts.participant && opts.topic) {
       const topicLower = opts.topic.toLowerCase();
       candidates = candidates.filter((e) => e.topics.some((t) => t.toLowerCase() === topicLower));
+    }
+
+    // S6: Bi-temporal filtering — only return facts valid at the requested time.
+    if (opts.validAt !== undefined) {
+      candidates = candidates.filter((ev) => {
+        const vs = ev.validity?.validStart ?? ev.occurredAt;
+        const ve = ev.validity?.validEnd;
+        if (vs > opts.validAt!) return false;
+        if (ve !== undefined && ve < opts.validAt!) return false;
+        return true;
+      });
     }
 
     return candidates;
@@ -1637,6 +1772,137 @@ export class Memorai {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // Sleep Consolidation (S7)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Sleep / consolidation pass — deep memory maintenance for long-running agents.
+   *
+   * Orchestrates multiple maintenance tasks:
+   *   1. Merge highly similar leaf segment nodes (embedding cosine > 0.95)
+   *   2. Evict low-retention nodes via `forget()`
+   *   3. Extract procedural skills from tool_call history
+   *   4. Generate reflection insights from recent events
+   *   5. Rebuild vector index if significant changes occurred
+   *
+   * Each step can be disabled via `SleepOptions`. The default window is
+   * since the last sleep call (or last 7 days on first call).
+   */
+  async sleep(opts: SleepOptions = {}): Promise<SleepResult> {
+    const startMs = performance.now();
+    // Default window: since last sleep, or last 7 days on first run.
+    const since = opts.since ?? this.lastSleptAt ?? Date.now() - 7 * 86400000;
+    const result: SleepResult = {
+      mergedNodes: 0,
+      evictedNodes: 0,
+      skillsExtracted: 0,
+      insightsGenerated: 0,
+      durationMs: 0,
+    };
+
+    // 1. Merge similar nodes.
+    if (opts.mergeSimilar !== false) {
+      result.mergedNodes = await this.mergeSimilarNodes();
+    }
+
+    // 2. Evict low-retention nodes.
+    if (opts.forget !== false) {
+      const forgetResult = await this.forget();
+      result.evictedNodes = forgetResult.evicted;
+    }
+
+    // 3. Extract skills.
+    if (opts.extractSkills !== false) {
+      const skillResult = await this.extractSkills({ since });
+      result.skillsExtracted = skillResult.skills.length;
+    }
+
+    // 4. Generate reflection insights.
+    if (opts.reflect !== false && this.config.llm) {
+      const reflectionResult = await this.reflect({ since });
+      result.insightsGenerated = reflectionResult.insights.length;
+    }
+
+    // 5. Rebuild vector index if significant changes.
+    if (opts.rebuildIndex !== false && this.vectorIndex) {
+      const totalChange = result.mergedNodes + result.evictedNodes + result.insightsGenerated;
+      if (totalChange > 5) {
+        await this.rebuildVectorIndex();
+      }
+    }
+
+    this.lastSleptAt = Date.now();
+    result.durationMs = Math.round(performance.now() - startMs);
+    return result;
+  }
+
+  private lastSleptAt?: number;
+
+  private async mergeSimilarNodes(): Promise<number> {
+    // Only merge leaf segments — merging higher-level nodes (atomic_action / episode)
+    // corrupts the HME hierarchy. Also cap to avoid runaway O(n²) on large stores.
+    const MAX_SCAN = 2000;
+    const all = await this.config.storage.listAll({ level: "segment", limit: MAX_SCAN });
+    const SIMILARITY_THRESHOLD = 0.95;
+    const merged = new Set<string>();
+
+    for (let i = 0; i < all.length; i++) {
+      const a = all[i];
+      if (merged.has(a.id)) continue;
+      if (!a.annotations.embedding) continue;
+
+      for (let j = i + 1; j < all.length; j++) {
+        const b = all[j];
+        if (merged.has(b.id)) continue;
+        if (!b.annotations.embedding) continue;
+        if (a.userId !== b.userId) continue;
+
+        const sim = cosineSimilarity(a.annotations.embedding, b.annotations.embedding);
+        if (sim >= SIMILARITY_THRESHOLD) {
+          // Merge b into a: update children, extend raw text.
+          if (b.childrenIds) {
+            a.childrenIds = [...(a.childrenIds ?? []), ...b.childrenIds];
+          }
+          if (b.raw.text) {
+            a.raw.text = a.raw.text
+              ? `${a.raw.text}; ${b.raw.text}`
+              : b.raw.text;
+          }
+          a.annotations.salienceScore = Math.max(
+            a.annotations.salienceScore,
+            b.annotations.salienceScore,
+          );
+          // Recompute embedding from merged text so the combined node
+          // accurately represents both originals.
+          const mergedText = composeIndexableText(a.raw, a.annotations);
+          if (mergedText) {
+            try {
+              a.annotations.embedding = await this.config.embedding.embed(mergedText);
+            } catch {
+              // Keep existing embedding if recompute fails.
+            }
+          }
+          await this.config.storage.put(a);
+          if (this.vectorIndex) {
+            await this.vectorIndex.upsert({
+              id: a.id,
+              embedding: a.annotations.embedding!,
+              metadata: {},
+            });
+          }
+          await this.config.storage.delete(b.id);
+          if (this.vectorIndex) {
+            await this.vectorIndex.delete(b.id);
+          }
+          merged.add(b.id);
+        }
+      }
+    }
+
+    return merged.size;
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // Management
   // ═══════════════════════════════════════════════════════════
 
@@ -1945,7 +2211,11 @@ export class Memorai {
   // Helpers
   // ═══════════════════════════════════════════════════════════
 
-  private buildRecallQuery(question: string, opts: RecallOptions): RetrievalQuery {
+  private buildRecallQuery(
+    question: string,
+    opts: RecallOptions,
+    intent?: QueryIntent,
+  ): RetrievalQuery {
     const base: RetrievalQuery = {
       strategy: opts.strategy ?? "factual",
       text: question || undefined,
@@ -1956,6 +2226,7 @@ export class Memorai {
       userId: opts.userId,
       actor: opts.actor,
       target: opts.target,
+      intent,
     };
     return { ...base, ...opts.overrideQuery };
   }
@@ -2290,7 +2561,7 @@ export class Memorai {
     }
     if (this.triggers.onIdleMs) {
       this.clearIdleTimer();
-      this.idleTimer = setTimeout(() => void this.evolve(), this.triggers.onIdleMs);
+      this.idleTimer = setTimeout(() => void this.onIdle(), this.triggers.onIdleMs);
     }
   }
 
@@ -2305,6 +2576,20 @@ export class Memorai {
         });
     };
     this.intervalTimer = setTimeout(run, intervalMs);
+  }
+
+  private async onIdle(): Promise<void> {
+    await this.evolve();
+    // After evolution, run sleep consolidation to merge, reflect, extract skills.
+    // Skip if sleep was run recently (< 1 min) to avoid redundant work.
+    const SLEEP_COOLDOWN_MS = 60000;
+    if (!this.lastSleptAt || Date.now() - this.lastSleptAt > SLEEP_COOLDOWN_MS) {
+      try {
+        await this.sleep();
+      } catch (err) {
+        console.error("[Memorai] sleep on idle failed:", err);
+      }
+    }
   }
 
   private clearIdleTimer(): void {
@@ -2695,6 +2980,19 @@ export {
   MemoryFederation,
   SubscriptionRegistry,
 } from "./federation.js";
+export { ReflectionEngine } from "./reflection.js";
+export {
+  NarrativeBuilder,
+} from "./narrative.js";
+export {
+  InMemorySkillStore,
+  SkillExtractor,
+  type ProceduralSkill,
+  type SkillExtractionOptions,
+  type SkillExtractionResult,
+  type SkillStep,
+  type SkillStore,
+} from "./skills/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {
