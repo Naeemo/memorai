@@ -1,0 +1,162 @@
+{
+  "suite": "locomo",
+  "provider": "memorai",
+  "ingestMode": "wrap",
+  "answererModel": "openai:kimi-k2.6",
+  "judgeModel": "openai:kimi-k2.6",
+  "embedder": "ollama",
+  "conversations": 1,
+  "totalQas": 1,
+  "correct": 0,
+  "accuracy": 0,
+  "avgLatencyMs": 177863.955208,
+  "p95LatencyMs": 177863.955208,
+  "byCategory": [
+    {
+      "category": "temporal",
+      "count": 1,
+      "correct": 0,
+      "accuracy": 0,
+      "f1": 0,
+      "bleu1": 0
+    }
+  ],
+  "records": [
+    {
+      "qa": {
+        "id": "conv-26#0",
+        "question": "When did Caroline go to the LGBTQ support group?",
+        "gold": "7 May 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Cool, Melanie! Running can really boost your mood. Keep it up!; Agreed, Mel! Art can be a real mood-booster - I saw someone drawing on the ground the other day and it made me so happy. Creativity sure can lighten someone's day.; Thanks, Mel! Art gives me so much joy. It helps me show my feelings and freeze gorgeous moments, like a bouquet of flowers. ; That sounds great! Music brings us together and brings joy. Playing and singing let me express myself and connect with others - love it! So cathartic and uplifting.; Guitar's mostly my thing. Playing it helps me get my emotions out.; Yep, Melanie! Being ourselves is such a great feeling. It's an ongoing adventure of learning and growing.; Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.02
+        },
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.01639344262295082
+        },
+        {
+          "content": "You'd be a great counselor! Your empathy and understanding will really help the people you work with. By the way, take a look at this.; Sounds great! What kind of counseling and mental health services do you want to persue?; Woah, Caroline, it sounds like you're doing some impressive work. It's inspiring to see your dedication to helping others. What motivated you to pursue counseling?; Congrats Caroline! Good on you for going after what you really care about.; Agreed, Caroline. Life's tough but it's worth it when we have things that make us happy.; Yeah, same here Caroline. You make life's struggles more bearable.; Wow, Caroline, that's great! Art's awesome for showing us who we really are and getting in touch with ourselves. What else helps you out?; Bye Caroline. I'm here for you. Take care of yourself.; That's great. Sharing your story and support might make a difference for a long time. What do you hope to do next time?; That's great news, Caroline! Love seeing your dedication to helping others. Any specific projects or activities you're looking forward to there?; Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.; Yeah for sure. Having my fam around helps a lot. It makes hard times easier.; Absolutely! I'm so glad we can always be there for each other.; Glad you had support. Being yourself is great!",
+          "score": 0.04861890797374668
+        },
+        {
+          "content": "Glad you had support. Being yourself is great!",
+          "score": 0.029030910609857977
+        },
+        {
+          "content": "Glad you agree, Caroline. Appreciate the support of those close to me. Their encouragement made me who I am.",
+          "score": 0.03889794416110206
+        },
+        {
+          "content": "Since we last spoke, some big things have happened. Last week I went to an LGBTQ+ pride parade. Everyone was so happy and it made me feel like I belonged. It showed me how much our community has grown, it was amazing!; Wow, Caroline, sounds like the parade was an awesome experience! It's great to see the love and support for the LGBTQ+ community. Congrats! Has this experience influenced your goals at all?; Wow, nice pic! You both looked amazing. One special memory for me was this pride parade I went to a few weeks ago.; Yes, I did. It was amazing! I felt so accepted and happy, just being around people who accepted and celebrated me. It's definitely a top memory.; I felt so proud and grateful - the vibes were amazing and it was comforting to know I'm not alone and have a great community around me.; It was awesome, Melanie! Being around people who embrace and back me up is beyond words. It really inspired me.; Realizing I can be me without fear and having the courage to transition was the best part. It's so freeing to express myself authentically and have people back me up.; The pride event was awesome! It was so encouraging to be surrounded by so much love and acceptance.; Wow, Mel, glad you had a blast at the concert. A lot's happened since we talked. I went to a pride parade last Friday and it was awesome - so much energy and love everywhere. Really made me proud and reminded me how important it is to keep standing up for equality.; It was so inspiring, Mel! Check out the crowd. People of all kinds celebrating love and acceptance - it really pushed me to keep fighting for LGBTQ rights.; I loved it. It was awesome to see how strong the young people were, with all the challenges they face. I felt fulfilled guiding and supporting them. I even got to let them know they're not alone by sharing my story. Such a powerful, emotional experience.; It was so special to me. It reminded me of my own struggles in the past and how I felt alone. I was glad I could share my story and offer them support - it felt like I could make a difference.; Thanks, Melanie. It's definitely changed them. Some close friends kept supporting me, but a few weren't able to handle it. It wasn't easy, but I'm much happier being around those who accept and love me. Now my relationships feel more genuine.; Caroline, it's got to be tough dealing with those changes. Glad you've found people who uplift and accept you! Here's to a good time at the café last weekend - they even had thoughtful signs like this! It brings me so much happiness.; Thanks, Mel. Finding self-acceptance was a long process, but now I'm ready to offer love and support to those who need it. It's empowering to make a positive difference in someone's life.; That must have been tough for you, Caroline. Respect for finding acceptance and helping others with what you've been through. You're so strong and inspiring.; Thanks, Melanie. Transitioning wasn't easy and acceptance wasn't either, but the help I got from friends, family and people I looked up to was invaluable. They boosted me through tough times and helped me find out who I really am. That's why I want to pass that same support to anyone who needs it. Bringing others comfort and helping them grow brings me such joy.; Thanks, Melanie. Your support really means a lot. This journey has been amazing and I'm grateful I get to share it and help others with theirs. It's a real gift.; Glad you agree, Caroline. Appreciate the support of those close to me. Their encouragement made me who I am.",
+          "score": 0.038104838709677416
+        },
+        {
+          "content": "Absolutely! I'm so glad we can always be there for each other.",
+          "score": 0.015151515151515152
+        },
+        {
+          "content": "Thanks, Melanie. Your support really means a lot. This journey has been amazing and I'm grateful I get to share it and help others with theirs. It's a real gift.",
+          "score": 0.03055037313432836
+        },
+        {
+          "content": "I'm keen on counseling or working in mental health - I'd love to support those with similar issues.; Lately, I've been looking into counseling and mental health as a career. I want to help people who have gone through the same things as me.; I'm still figuring out the details, but I'm thinking of working with trans people, helping them accept themselves and supporting their mental health. Last Friday, I went to an LGBTQ+ counseling workshop and it was really enlightening. They talked about different therapeutic methods and how to best work with trans people. Seeing how passionate these pros were about making a safe space for people like me was amazing.; Thanks, Melanie. It really mattered. My own journey and the support I got made a huge difference. Now I want to help people go through it too. I saw how counseling and support groups improved my life, so I started caring more about mental health and understanding myself. Now I'm passionate about creating a safe, inviting place for people to grow.; Thanks, Mel! It really motivated me for sure. Talking to the community made me want to use my story to help others too - I'm still thinking that counseling and mental health is the way to go. I'm super excited to give back. ; Since our last chat, I've been looking into counseling or mental health work more. I'm passionate about helping people and making a positive impact. It's tough, but really rewarding too. Anything new happening with you?; Thanks, Mell! I'm still looking into counseling and mental health jobs. It's important to me that people have someone to talk to, and I want to help make that happen.; Wow, Caroline! You're so inspiring for wanting to help others with their mental health. What's pushing you to keep going forward with it?; I struggled with mental health, and support I got was really helpful. It made me realize how important it is for others to have a support system. So, I started looking into counseling and mental health career options, so I could help other people on their own journeys like I was helped.; That's awesome, Caro! You've found the courage to be yourself - that's important for our mental health and finding peace.; I'm so happy for you, Caroline. You found your true self and now you're helping others. You're so inspiring!",
+          "score": 0.04541176470588235
+        },
+        {
+          "content": "I'm so happy for you, Caroline. You found your true self and now you're helping others. You're so inspiring!",
+          "score": 0.014492753623188406
+        },
+        {
+          "content": "Thanks, Melanie. Transitioning wasn't easy and acceptance wasn't either, but the help I got from friends, family and people I looked up to was invaluable. They boosted me through tough times and helped me find out who I really am. That's why I want to pass that same support to anyone who needs it. Bringing others comfort and helping them grow brings me such joy.",
+          "score": 0.029437229437229435
+        },
+        {
+          "content": "That must have been tough for you, Caroline. Respect for finding acceptance and helping others with what you've been through. You're so strong and inspiring.",
+          "score": 0.023985497141263423
+        },
+        {
+          "content": "Thanks, Mel. Finding self-acceptance was a long process, but now I'm ready to offer love and support to those who need it. It's empowering to make a positive difference in someone's life.",
+          "score": 0.023412698412698413
+        },
+        {
+          "content": "Wow, Mel! Sounds like you and the kids had a blast. How'd they like it?; Sounds fun! What was the best part? Do you do it often with the kids?; That was a blast! So much fun with the whole gang! Wanna do a family outing this summer?; Right, it was so much fun! We could do a family outting, or wanna plan something special for this summer, just us two? It'd be a great chance to catch up and explore nature! What do you think?; Hey Caroline! Since we last spoke, I took my kids to a park yesterday. They had fun exploring and playing. It was nice seeing them have a good time outdoors. Time flies, huh? What's new with you?; Wow, your kids had so much fun at the park! Being outdoors can be really enjoyable. A lot happened since our last chat. I've been chasing my ambitions and had the chance to volunteer at an LGBTQ+ youth center. It was so gratifying to talk to similar young people. It made me remember how essential it is to be kind and show support.; That sounds great, Caroline. Volunteering is a great way to meet people. Creating community and supporting each other, especially for kids, is really important. How did you feel about your time there? Anything that sticks out to you?; Thanks, Caroline! It's awesome seeing the kids get excited learning something new about nature. Those moments make being a parent worth it. We roasted marshmallows and shared stories around the campfire. Those simple moments make the best memories. What inspires you with your volunteering?; Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.; Wow, Caroline, that's awesome. Giving a home to needy kids is such a loving way to build a family. Those kids will be so supported and happy in their new home.; Thanks, Melanie. My dream is to create a safe and loving home for these kids. Love and acceptance should be everyone's right, and I want them to experience it.; I totally agree, Caroline. Everyone deserves that. It's awesome to see how passionate you are about helping these kids.",
+          "score": 0.01643835616438356
+        },
+        {
+          "content": "I totally agree, Caroline. Everyone deserves that. It's awesome to see how passionate you are about helping these kids.",
+          "score": 0.013513513513513514
+        },
+        {
+          "content": "Thanks, Melanie. My dream is to create a safe and loving home for these kids. Love and acceptance should be everyone's right, and I want them to experience it.",
+          "score": 0.013333333333333334
+        },
+        {
+          "content": "Wow, Caroline, that's awesome. Giving a home to needy kids is such a loving way to build a family. Those kids will be so supported and happy in their new home.",
+          "score": 0.013157894736842105
+        },
+        {
+          "content": "Researching adoption agencies — it's been a dream to have a family and give a loving home to kids who need it.; Thanks, Mel! My goal is to give kids a loving home. I'm truly grateful for all the support I've got from friends and mentors. Now the hard work starts to turn my dream into a reality. And here's one of the adoption agencies I'm looking into. It's a lot to take in, but I'm feeling hopeful and optimistic.; I chose them 'cause they help LGBTQ+ folks with adoption. Their inclusivity and support really spoke to me.; That's great, Caroline! Loving the inclusivity and support. Anything you're excited for in the adoption process?; That photo is stunning! So glad you bonded over our love of nature. Last Friday I went to a council meeting for adoption. It was inspiring and emotional - so many people wanted to create loving homes for children in need. It made me even more determined to adopt.; Hi Melanie! Hope you're doing good. Guess what I did this week? I took the first step towards becoming a mom - I applied to adoption agencies! It's a big decision, but I think I'm ready to give all my love to a child. I got lots of help from this adoption advice/assistance group I attended. It was great!; Wow, Caroline! That's amazing. You really care about being real and helping others. Wishing you the best on your adoption journey!; Hey Mel, what's up? Long time no see! I just contacted my mentor for adoption advice. I'm ready to be a mom and share my love and family. It's a great feeling. Anything new with you? Anything exciting going on?; Thanks, Melanie! I'm stoked to start this new chapter. It's been a dream to adopt and provide a safe, loving home for kids who need it. Do you have any experience with adoption, or know anyone who's gone through the process?; Yeah, a buddy of mine adopted last year. It was a long process, but now they're super happy with their new kid. Makes me feel like maybe I should do it too!; Yep! Do your research and find an adoption agency or lawyer. They'll help with the process and provide all the info. Gather documents like references, financial info and medical checks. Don't forget to prepare emotionally, since the wait can be hard. It's all worth it in the end though.; Woohoo Melanie! I passed the adoption agency interviews last Friday! I'm so excited and thankful. This is a big move towards my goal of having a family.; Thanks so much, Melanie! It's beautiful! It really brings home how much love's in families - both blood and the ones we choose. I hope to build my own family and put a roof over kids who haven't had that before. For me, adoption is a way of giving back and showing love and acceptance.",
+          "score": 0.015584415584415584
+        },
+        {
+          "content": "Thanks so much, Melanie! It's beautiful! It really brings home how much love's in families - both blood and the ones we choose. I hope to build my own family and put a roof over kids who haven't had that before. For me, adoption is a way of giving back and showing love and acceptance.",
+          "score": 0.01282051282051282
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your kind words. Looking forward to more happy years. Our family and moments make it all worth it.; Absolutely, Caroline! I cherish time with family. It's when I really feel alive and happy.; I 100% agree, Mel. Hanging with loved ones is amazing and brings so much happiness. Those moments really make me thankful. Family is everything.; Wow, Mel, family love and support is the best!; Yeah, Caroline, my family's been great - their love and support really helped me through tough times. It's awesome! We even went on another camping trip in the forest.; Wow, Mel, that sounds awesome! Exploring nature and family time is so special.; That's great, Mel! What other good memories do you have that make you feel thankful for life?; Yeah, they sure are. It's special moments like these that make me appreciate life and how lucky I am to be with my family and have our love.; Wow, Melanie, what a beautiful moment! Lucky you to have such an awesome family!; Thanks, Caroline! I'm really lucky to have my family; they bring so much joy and love.; It's so sweet to see your love for your family, Melanie. They really are your rock.; Congrats, Caroline! Adoption sounds awesome. I'm so happy for you. These figurines I bought yesterday remind me of family love. Tell me, what's your vision for the future?",
+          "score": 0.015189873417721518
+        },
+        {
+          "content": "Congrats, Caroline! Adoption sounds awesome. I'm so happy for you. These figurines I bought yesterday remind me of family love. Tell me, what's your vision for the future?",
+          "score": 0.0125
+        },
+        {
+          "content": "Woohoo Melanie! I passed the adoption agency interviews last Friday! I'm so excited and thankful. This is a big move towards my goal of having a family.",
+          "score": 0.012345679012345678
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.014634146341463414
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.012048192771084338
+        },
+        {
+          "content": "Hey Caroline! Good to see you! I'm swamped with the kids & work. What's up with you? Anything new?; Hey Caroline! Good to talk to you again. What's up? Anything new since last time?; Great chatting with you! Feel free to reach out any time.; Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!; Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.014285714285714284
+        },
+        {
+          "content": "Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.011764705882352941
+        },
+        {
+          "content": "That sounds great, Caroline! It's awesome having stuff around that make us think of good connections and times. Actually, I just took my fam camping in the mountains last week - it was a really nice time together!; Hey Caroline! It's so good to hear from you! That pic is so beautiful, the colors really pop. Biking sounds like a great way to get out in nature. We went camping with the kids a few weeks ago, had a blast exploring the forest and hiking. Nature can be so refreshing for your soul. Any plans coming up?; Melanie, that photo's amazing! I love all the yellow leaves, it looks so cozy. That sounds like fun! Seeing how excited they get for the little things is awesome, it's so contagious.; Absolutely! It really helps me reset and recharge. I love camping trips with my fam, 'cause nature brings such peace and serenity.; Wow, that's awesome! What do you love most about camping with your fam?; It's a chance to be present and together. We bond over stories, campfires and nature. It's so peaceful waking up to the sound of birds and the smell of fresh air - it always refreshes my soul.; That's so peaceful and calming, Melanie! I can picture waking up to nature. It's great that you get to spend quality, tranquil time with your family.",
+          "score": 0.013953488372093023
+        },
+        {
+          "content": "That's so peaceful and calming, Melanie! I can picture waking up to nature. It's great that you get to spend quality, tranquil time with your family.",
+          "score": 0.011494252873563218
+        },
+        {
+          "content": "It's a chance to be present and together. We bond over stories, campfires and nature. It's so peaceful waking up to the sound of birds and the smell of fresh air - it always refreshes my soul.",
+          "score": 0.011363636363636364
+        },
+        {
+          "content": "Wow, that's awesome! What do you love most about camping with your fam?",
+          "score": 0.011235955056179775
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 177863.955208,
+      "hitCount": 30
+    }
+  ],
+  "runAt": "2026-05-22T17:49:15.438Z",
+  "durationMs": 189735.983
+}

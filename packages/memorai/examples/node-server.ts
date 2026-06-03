@@ -41,33 +41,22 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/write") {
       const body = await readBody(req);
       const summary = String(body.summary ?? "");
-      const node = await memory.write({
-        raw: {
-          content: { kind: "observation", text: summary },
-          text: summary,
-        },
-        annotations: {
-          summary,
-          description: body.description as string | undefined,
-          tags: (body.tags as string[]) ?? [],
-          salienceScore: (body.salience as number) ?? 0.5,
-          modality: (body.modality as ("text" | "vision" | "audio" | "multimodal")[]) ?? ["text"],
-        },
-        meta: { agentRole: (body.agentRole as string) ?? "default" },
+      const handle = memory.recordEvent({
+        at: Date.now(),
+        actor: (body.agentRole as string) ?? "default",
+        content: { kind: "observation", text: summary },
+        tags: (body.tags as string[]) ?? [],
+        salienceHint: (body.salience as number) ?? 0.5,
       });
-      return send(200, { id: node.id });
+      const nodes = await handle.nodes;
+      return send(200, { id: nodes[0]?.id });
     }
 
     // GET /retrieve — search memories
     if (req.method === "GET" && url.pathname === "/retrieve") {
       const query = url.searchParams.get("q") ?? "";
-      const strategy = (url.searchParams.get("strategy") ?? "factual") as "factual" | "temporal";
       const topK = Number(url.searchParams.get("topK") ?? 5);
-      const result = await memory.retrieve({
-        strategy,
-        text: query,
-        topK,
-      });
+      const result = await memory.recall(query, { topK });
       return send(200, result);
     }
 
@@ -75,18 +64,16 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/today") {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const result = await memory.retrieve({
-        strategy: "temporal",
-        timeRange: { start: today.getTime(), end: Date.now() },
-        traversalOrder: "forward",
-        topK: 50,
-      });
+      const result = await memory.recallByTime(
+        { start: today.getTime(), end: Date.now() },
+        { topK: 50 }
+      );
       return send(200, {
-        count: result.nodes.length,
-        events: result.nodes.map((n) => ({
-          time: new Date(n.timestamp).toISOString(),
-          summary: n.annotations.summary ?? n.raw.text ?? "",
-          level: n.level,
+        count: result.memories.length,
+        events: result.memories.map((m) => ({
+          time: new Date(m.at).toISOString(),
+          summary: m.summary,
+          level: m.level,
         })),
       });
     }

@@ -1,6 +1,6 @@
 # Memorai Architecture
 
-> **Version:** 0.4.0
+> **Version:** 0.5.0
 > **Date:** 2026-05-17
 > **Based on:** StreamingClaw StreamingMemory (arXiv:2603.22120v2) + mem0/Letta lessons + production benchmark feedback
 > **Goal:** A runtime-agnostic, multimodal **event-based** memory layer for AI agents — an "efficient memory that never forgets".
@@ -826,17 +826,37 @@ const runtime = detectRuntime(); // 'browser' | 'node' | 'bun' | 'deno'
 {
   "exports": {
     ".": {
-      "browser": "./dist/browser/index.js",
-      "node": "./dist/node/index.js",
-      "bun": "./dist/node/index.js",
-      "deno": "./dist/deno/index.js",
-      "default": "./dist/index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
-    "./adapters/browser": "./dist/adapters/browser.js",
-    "./adapters/node": "./dist/adapters/node.js",
-    "./embeddings/openai": "./dist/embeddings/openai.js",
-    "./embeddings/ollama": "./dist/embeddings/ollama.js",
-    "./embeddings/transformers": "./dist/embeddings/transformers.js"
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js"
+    },
+    "./embeddings": {
+      "types": "./dist/embeddings/index.d.ts",
+      "import": "./dist/embeddings/index.js"
+    },
+    "./vector": {
+      "types": "./dist/vector/index.d.ts",
+      "import": "./dist/vector/index.js"
+    },
+    "./graph": {
+      "types": "./dist/graph/index.d.ts",
+      "import": "./dist/graph/index.js"
+    },
+    "./temporal": {
+      "types": "./dist/temporal/index.d.ts",
+      "import": "./dist/temporal/index.js"
+    },
+    "./working": {
+      "types": "./dist/working/index.d.ts",
+      "import": "./dist/working/index.js"
+    },
+    "./retention": {
+      "types": "./dist/retention/index.d.ts",
+      "import": "./dist/retention/index.js"
+    }
   }
 }
 ```
@@ -845,7 +865,7 @@ const runtime = detectRuntime(); // 'browser' | 'node' | 'bun' | 'deno'
 
 | Feature | Browser | Node.js / Bun / Deno |
 |---|---|---|
-| Default Storage | IndexedDBAdapter | LevelDBAdapter or SQLiteAdapter |
+| Default Storage | IndexedDBAdapter | SQLiteAdapter |
 | Compression | Canvas-based image compression | Sharp / ffmpeg-wasm |
 | Embeddings | `@xenova/transformers` (WebGPU) | Ollama / OpenAI API / local |
 | Crypto | `crypto.subtle` | `crypto` module (polyfilled for Deno) |

@@ -1,6 +1,6 @@
 # Memorai
 
-> Memory for AI agents — built to remember, recall, and reflect.
+> Memory for AI agents - built to remember, recall, and reflect.
 
 **Browser • Node.js • Bun • Deno**
 
@@ -10,12 +10,12 @@ Memorai is a portable reimplementation of [StreamingClaw's StreamingMemory](http
 
 ## Features
 
-- **Multimodal Memory Nodes** — Store text, images, audio, and video references together with embeddings and metadata
-- **Hierarchical Memory Evolution (HME)** — Raw segments → Atomic actions → Events, with automatic online merging
-- **Pluggable Storage** — IndexedDB (Browser), in-memory (testing), or bring your own adapter
-- **Pluggable Embeddings** — OpenAI, Ollama, or any custom embedding service
-- **Runtime Agnostic** — Same code runs anywhere JavaScript runs
-- **Cross-Agent Memory Profiles** — Different agents with different read/write policies share unified storage
+- **Multimodal Memory Nodes** - Store text, images, audio, and video references together with embeddings and metadata
+- **Hierarchical Memory Evolution (HME)** - Raw segments → Atomic actions → Events, with automatic online merging
+- **Pluggable Storage** - IndexedDB (Browser), in-memory (testing), or bring your own adapter
+- **Pluggable Embeddings** - OpenAI, Ollama, or any custom embedding service
+- **Runtime Agnostic** - Same code runs anywhere JavaScript runs
+- **Cross-Agent Memory Profiles** - Different agents with different read/write policies share unified storage
 
 ---
 
@@ -98,21 +98,31 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 
 ## Benchmarks
 
-Memorai is continuously evaluated against a suite of memory-specific benchmarks. Results are run locally against Ollama models.
+Memorai is evaluated against both **public datasets** (comparable across libraries) and **internal synthetic tests** (validates specific capabilities in controlled settings).
 
-**Latest run:** 2026-05-15  
+### Public Datasets
+
+| Benchmark | Score | What it tests | Notes |
+|---|---|---|---|
+| LoCoMo conv-26 | 33.55% | Multi-turn conversational memory over 26 turns | Primary target for improvement. See [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md) for roadmap. |
+| LongMemEval | 92% | Event-level recall + query expansion | Competitive (Zep: 64–71%, Mem0: 49%) |
+
+### Internal Synthetic Tests
+
+These are controlled-environment tests with pre-defined conditions. **Not comparable to public benchmarks.**
+
+| Benchmark | Score | What it tests | Test conditions |
+|---|---|---|---|
+| Needle-in-a-Haystack | 100% | Retrieve a specific fact from 250 distractor memories | Controlled vocabulary, single-hop |
+| Multi-Needle Retrieval | 100% | Recall 5 hidden facts simultaneously from 100 memories | Controlled vocabulary, no temporal ambiguity |
+| Hierarchical Evolution Preservation | 100% | Information retrievability after STM→LTM compression | 2-level hierarchy, pre-defined segments |
+| Temporal Retrieval | 100% | Time-range filtered queries over 24h of activity | Fixed time window, no relative expressions |
+| Scalability | 100% | Write/read latency at 1,000 memory corpus | Sequential ingestion, single user |
+| Cross-Agent Isolation | 100% | Memory boundary enforcement between agent profiles | Two fixed profiles, no overlap |
+
+**Latest run:** 2026-05-15
 **Models:** `nomic-embed-text` (embeddings) · `gemma4:31b-cloud` (LLM judge)
-
-| Benchmark | Score | What it tests |
-|---|---|---|
-| Needle-in-a-Haystack | 100% | Retrieve a specific fact from 250 distractor memories |
-| Multi-Needle Retrieval | 100% | Recall 5 hidden facts simultaneously from 100 memories |
-| Hierarchical Evolution Preservation | 100% | Information retrievability after STM→LTM compression |
-| Temporal Retrieval | 100% | Time-range filtered queries over 24h of activity |
-| Scalability | 100% | Write/read latency at 1,000 memory corpus |
-| Cross-Agent Isolation | 100% | Memory boundary enforcement between agent profiles |
-
-**Overall accuracy: 100%** · **Batch write speedup: 2.3×** over sequential ingestion.
+**Batch write speedup:** 2.3× over sequential ingestion.
 
 Run benchmarks yourself:
 
