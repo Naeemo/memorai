@@ -1,0 +1,112 @@
+{
+  "name": "Memorai Custom Suite",
+  "results": [
+    {
+      "name": "Needle-in-a-Haystack",
+      "score": 0.9425036317402452,
+      "latencyMs": 23.288958250000007,
+      "details": {
+        "n=10": "score=1.00, rank=0, sim=1.000",
+        "n=50": "score=1.00, rank=0, sim=1.000",
+        "n=100": "score=0.77, rank=3, sim=0.554",
+        "n=250": "score=1.00, rank=1, sim=0.768"
+      }
+    },
+    {
+      "name": "Multi-Needle Retrieval",
+      "score": 0.6888888888888888,
+      "latencyMs": 21.073902777778333,
+      "details": {
+        "needles=1": "recall=1.00, avg_rank=7.0, avg_sim=0.786",
+        "needles=3": "recall=0.67, avg_rank=2.3, avg_sim=0.748",
+        "needles=5": "recall=0.40, avg_rank=6.0, avg_sim=0.715"
+      }
+    },
+    {
+      "name": "Hierarchical Evolution Preservation",
+      "score": 1,
+      "latencyMs": 21.88080600000103,
+      "details": {
+        "baseline_score": 1,
+        "evolved_score": 1,
+        "preservation_ratio": 1,
+        "evolve_ms": 4.445542000001296,
+        "baseline_latency_ms": 22.219361333331715
+      }
+    },
+    {
+      "name": "Temporal Retrieval",
+      "score": 1,
+      "latencyMs": 17.633016799999314,
+      "details": {
+        "memory_count": 60,
+        "queries": 5,
+        "avg_recall": 1
+      }
+    },
+    {
+      "name": "Scalability",
+      "score": 1,
+      "latencyMs": 27.915516599998956,
+      "details": {
+        "n=50_seq_write_ms/item": 23.378662500000065,
+        "n=50_batch_write_ms/item": 9.708016675,
+        "n=50_retrieve_ms": 18.604582999996637,
+        "n=50_speedup": "2.41x",
+        "n=100_seq_write_ms/item": 22.36451249999991,
+        "n=100_batch_write_ms/item": 8.86899907777778,
+        "n=100_retrieve_ms": 27.230875000001106,
+        "n=100_speedup": "2.52x",
+        "n=250_seq_write_ms/item": 22.03686250000028,
+        "n=250_batch_write_ms/item": 8.734621874999993,
+        "n=250_retrieve_ms": 20.498708999999508,
+        "n=250_speedup": "2.52x",
+        "n=500_seq_write_ms/item": 22.66195829999997,
+        "n=500_batch_write_ms/item": 8.914544981632652,
+        "n=500_retrieve_ms": 37.52524999999878,
+        "n=500_speedup": "2.54x",
+        "n=1000_seq_write_ms/item": 21.645941700000186,
+        "n=1000_batch_write_ms/item": 9.087236573737377,
+        "n=1000_retrieve_ms": 35.718165999998746,
+        "n=1000_speedup": "2.38x",
+        "avg_batch_speedup": 2.4753825297982184
+      }
+    },
+    {
+      "name": "Cross-Agent Isolation",
+      "score": 1,
+      "latencyMs": 13.972485999998753,
+      "details": {
+        "agents": 3,
+        "memories_per_agent": 30,
+        "isolation_scores": "1.00, 1.00, 1.00"
+      }
+    },
+    {
+      "name": "Multimodal Recall",
+      "score": 0.8,
+      "latencyMs": 20.116566599998624,
+      "details": {
+        "samples": 5,
+        "hits": 4,
+        "kinds": "image,video,audio,image,file",
+        "failed": "file:blob:security-audit-q2.pdf"
+      }
+    },
+    {
+      "name": "Time-Window Recall",
+      "score": 1,
+      "latencyMs": 0.16931250000106957,
+      "details": {
+        "events": 60,
+        "windows": 8,
+        "span_hours": 24,
+        "avg_recall": 1,
+        "avg_precision": 1
+      }
+    }
+  ],
+  "totalScore": 0.9289240650786418,
+  "totalLatencyMs": 146.0505655277761,
+  "runAt": "2026-05-16T11:48:06.087Z"
+}

@@ -85,7 +85,7 @@ import { OpenAIEmbeddingService, OllamaEmbeddingService } from 'memorai/embeddin
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
+See [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) for the full design document.
 
 **Roadmap status:**
 - ✅ Phase 1: Core Foundation (storage adapters, CRUD, embeddings)
@@ -104,7 +104,7 @@ Memorai is evaluated against both **public datasets** (comparable across librari
 
 | Benchmark | Score | What it tests | Notes |
 |---|---|---|---|
-| LoCoMo conv-26 | 33.55% | Multi-turn conversational memory over 26 turns | Primary target for improvement. See [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md) for roadmap. |
+| LoCoMo conv-26 | 33.55% | Multi-turn conversational memory over 26 turns | Primary target for improvement. See [docs/design/OPTIMIZATION-PLAN.md](docs/design/OPTIMIZATION-PLAN.md) for roadmap. |
 | LongMemEval | 92% | Event-level recall + query expansion | Competitive (Zep: 64–71%, Mem0: 49%) |
 
 ### Internal Synthetic Tests

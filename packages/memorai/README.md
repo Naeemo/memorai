@@ -1,16 +1,8 @@
 # Memorai [![npm](https://img.shields.io/npm/v/memorai.svg)](https://npmjs.com/package/memorai)
 
-Memory for AI agents — built to remember, recall, and reflect.
+The core package of [Memorai](https://github.com/Naeemo/memorai) — the memory layer for AI agents.
 
-## Quick Start
-
-```shell
-pnpm add memorai
-```
-
-```typescript
-// TODO
-```
+For full documentation, see the [root README](https://github.com/Naeemo/memorai#readme) and [design docs](../../docs/design/).
 
 ## License
 

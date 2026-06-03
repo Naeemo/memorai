@@ -1,0 +1,1384 @@
+{
+  "suite": "locomo",
+  "provider": "memorai",
+  "ingestMode": "wrap",
+  "answererModel": "ollama:gemma4:31b-cloud",
+  "judgeModel": "ollama:qwen3-coder-next:cloud",
+  "embedder": "ollama",
+  "conversations": 1,
+  "totalQas": 10,
+  "correct": 1,
+  "accuracy": 0.1,
+  "avgLatencyMs": 2625.694903999999,
+  "p95LatencyMs": 4931.605874999994,
+  "byCategory": [
+    {
+      "category": "multi_hop",
+      "count": 1,
+      "correct": 0,
+      "accuracy": 0,
+      "f1": 0,
+      "bleu1": 0
+    },
+    {
+      "category": "single_hop",
+      "count": 3,
+      "correct": 1,
+      "accuracy": 0.3333333333333333,
+      "f1": 0.1904761904761905,
+      "bleu1": 0.13333333333333333
+    },
+    {
+      "category": "temporal",
+      "count": 6,
+      "correct": 0,
+      "accuracy": 0,
+      "f1": 0,
+      "bleu1": 0
+    }
+  ],
+  "records": [
+    {
+      "qa": {
+        "id": "conv-26#0",
+        "question": "When did Caroline go to the LGBTQ support group?",
+        "gold": "7 May 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 2508.0920000000024,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#1",
+        "question": "When did Melanie paint a sunrise?",
+        "gold": "2022",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 3919.5342920000003,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#2",
+        "question": "What fields would Caroline be likely to pursue in her educaton?",
+        "gold": "Psychology, counseling certification",
+        "category": "multi_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 1807.262749999998,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#3",
+        "question": "What did Caroline research?",
+        "gold": "Adoption agencies",
+        "category": "single_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 2010.112874999999,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#4",
+        "question": "What is Caroline's identity?",
+        "gold": "Transgender woman",
+        "category": "single_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "Caroline is a transgender woman.",
+      "judgeLabel": "CORRECT",
+      "latencyMs": 2906.7972910000026,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#5",
+        "question": "When did Melanie run a charity race?",
+        "gold": "The sunday before 25 May 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 1993.4262909999998,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#6",
+        "question": "When is Melanie planning on going camping?",
+        "gold": "June 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 1985.9794169999986,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#7",
+        "question": "What is Caroline's relationship status?",
+        "gold": "Single",
+        "category": "single_hop"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 2227.201832999999,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#8",
+        "question": "When did Caroline give a speech at a school?",
+        "gold": "The week before 9 June 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 4931.605874999994,
+      "hitCount": 30
+    },
+    {
+      "qa": {
+        "id": "conv-26#9",
+        "question": "When did Caroline meet up with her friends, family, and mentors?",
+        "gold": "The week before 9 June 2023",
+        "category": "temporal"
+      },
+      "hits": [
+        {
+          "content": "Yeah, that's true! It's so freeing to just be yourself and live honestly. We can really accept who we are and be content.",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah totally! They're priceless. Lucky you!",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Painting's a fun way to express my feelings and get creative. It's a great way to relax after a long day.; Cool, Melanie! Running can really boost your mood. Keep it up!; Thanks, Caroline! This is a great time. Nature and quality time, can't beat it!",
+          "score": 0.5
+        },
+        {
+          "content": "Glad you got some R&R after the drive. Nature sure seems to refresh us, huh?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Yup, we just did it yesterday! The kids loved it and it was a nice way to relax after the road trip.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, great pic! Is that recent? Looks like you all had fun!",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, Caroline. Totally agree. They're my biggest motivation and support.; Thanks, Caroline. They're a real support. Appreciate them a lot.",
+          "score": 0.5
+        },
+        {
+          "content": "Our loved ones give us strength to tackle any challenge - it's amazing!",
+          "score": 0.5
+        },
+        {
+          "content": "Kids are amazingly resilient in tough situations. They have an amazing ability to bounce back.; They're really amazing. Wish I was that resilient too. But they give me the strength to keep going.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks! They were scared but we reassured them and explained their brother would be OK. They're tough kids.",
+          "score": 0.5
+        },
+        {
+          "content": "The kids look so cute, Mel! I bet they bring lots of joy. How did they handle the accident?",
+          "score": 0.5
+        },
+        {
+          "content": "Yeah, you're right, Caroline. Family's super important to me. Especially after the accident, I've thought a lot about how much I need them. They mean the world to me and I'm so thankful to have them. Thankfully, they enjoyed the Grand Canyon a lot!",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been up since we last talked?; Oops, sorry 'bout the accident! Must have been traumatizing for you guys. Thank goodness your son's okay. Life sure can be a roller coaster.; Yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.; Glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.",
+          "score": 0.5
+        },
+        {
+          "content": "I love it. Showing off our true selves is the best thing ever.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, love that painting! So cool you found such a helpful group. What's it done for you?; Thanks, Melanie! That's really sweet. Is this your own painting?; Yay! Next month I'm having an LGBTQ art show with my paintings - can't wait!; Check out my painting for the art show! Hope you like it.; My art is about expressing my trans experience. It's my way of showing my story and helping people understand the trans community.; Your art's amazing, Caroline. I love how you use it to tell your stories and teach people about trans folks. I'd love to see another painting of yours!; Thanks, Melanie. Here's one- 'Embracing Identity' is all about finding comfort and love in being yourself. The woman in the painting stands for the journey of acceptance. My aim was to show warmth, love and self-acceptance.; Wow, Caroline, that's gorgeous! I love the self-acceptance and love theme. How does art help you with your self-discovery and acceptance journey?; Finding a community where I'm accepted, loved and supported has really meant a lot to me. It's made a huge difference to have people who get what I'm going through. Stuff like this mural are really special to me!; That's awesome, Caroline! You drew it? What does it mean to you?; Thanks, Melanie! Yeah, I drew it. It stands for freedom and being real. It's like a nudge to always stay true to myself and embrace my womanhood.",
+          "score": 0.5
+        },
+        {
+          "content": "The room was electric with energy and support! The posters were amazing, so much pride and strength! It inspired me to make some art.",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, sounds amazing! What was the event like? Those posters are great!",
+          "score": 0.5
+        },
+        {
+          "content": "The transgender stories were so inspiring! I was so happy and thankful for all the support.; I loved \"Becoming Nicole\" by Amy Ellis Nutt. It's a real inspiring true story about a trans girl and her family. It made me feel connected and gave me a lot of hope for my own path. Highly recommend it for sure!; Thanks, Caroline! I really appreciate your help and motivation. What made you decide to transition and join the transgender community?; Thanks! It was made for a local church and shows time changing our lives. I made it to show my own journey as a transgender woman and how we should accept growth and change.; It was a transgender poetry reading where transgender people shared their stories through poetry. It was extra special 'cause it was a safe place for self-expression and it was really empowering to hear others share and celebrate their identities.",
+          "score": 0.5
+        },
+        {
+          "content": "Nope, never been to something like that. What was it about? What made it so special?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, that looks great! The blue adds so much to it. What feelings were you hoping to portray?",
+          "score": 0.5
+        },
+        {
+          "content": "Cool that you have creative outlets. Got any paintings to show? I'd love to check them out.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline. It was tough, but I'm doing ok. Been reading that book you recommended a while ago and painting to keep busy.",
+          "score": 0.5
+        },
+        {
+          "content": "Oh man, sorry to hear that, Melanie. I hope you're okay. Pottery's a great way to relax, so it must have been tough taking a break. Need any help?",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks for the tip, Caroline. Doing research and readying myself emotionally makes sense. I'll do that. BTW, recently I had a setback. Last month I got hurt and had to take a break from pottery, which I use for self-expression and peace.",
+          "score": 0.5
+        },
+        {
+          "content": "Thanks, Caroline! Appreciate your help. Got any tips for getting started on it?",
+          "score": 0.5
+        },
+        {
+          "content": "Hey Caroline! Great to hear from you! Wow, what an amazing journey. Congrats!",
+          "score": 0.5
+        },
+        {
+          "content": "Phew! Glad it all worked out and you had a good time at the park!",
+          "score": 0.5
+        },
+        {
+          "content": "The sign was just a precaution, I had a great time. But thank you for your concern, you're so thoughtful!",
+          "score": 0.5
+        },
+        {
+          "content": "Whoa, Mel, that sign looks serious. Did anything happen?",
+          "score": 0.5
+        },
+        {
+          "content": "Wow, Caroline! This painting is awesome. Love the red and blue. What gave you the idea?",
+          "score": 0.5
+        }
+      ],
+      "predicted": "I don't know.",
+      "judgeLabel": "INCORRECT",
+      "latencyMs": 1966.9364159999968,
+      "hitCount": 30
+    }
+  ],
+  "runAt": "2026-05-16T10:31:36.213Z",
+  "durationMs": 40545.375583
+}

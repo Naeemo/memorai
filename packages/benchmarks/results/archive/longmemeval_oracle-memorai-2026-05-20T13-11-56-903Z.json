@@ -1,0 +1,18 @@
+{
+  "suite": "longmemeval_oracle",
+  "provider": "memorai",
+  "ingestMode": "wrap",
+  "answererModel": "openai:kimi-k2.6",
+  "judgeModel": "openai:kimi-k2.5",
+  "embedder": "ollama",
+  "conversations": 1,
+  "totalQas": 0,
+  "correct": 0,
+  "accuracy": 0,
+  "avgLatencyMs": 0,
+  "p95LatencyMs": 0,
+  "byCategory": [],
+  "records": [],
+  "runAt": "2026-05-20T13:11:56.903Z",
+  "durationMs": 3070.82525
+}
