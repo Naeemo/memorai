@@ -1,0 +1,21 @@
+{
+  "name": "@memorai/chatgpt-importer",
+  "version": "0.1.0",
+  "description": "Chrome extension to import ChatGPT history into Memorai",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "check": "tsc --noEmit",
+    "lint": "oxlint ."
+  },
+  "dependencies": {
+    "memorai": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vite": "^6.4.0",
+    "@types/chrome": "^0.0.316",
+    "tailwindcss": "^4.0.0"
+  }
+}
