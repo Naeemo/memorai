@@ -13,10 +13,10 @@ async function getMemory(): Promise<Memorai> {
   memory = new Memorai({
     storage: new IndexedDBAdapter({
       dbName: "memorai-chatgpt",
-      namespace: "browser-extension",
+      namespace: "browser-extension" 
     }),
     embedding: new OllamaEmbeddingService({
-      baseUrl: "http://localhost:11434",
+      baseURL: "http://localhost:11434",
       model: "nomic-embed-text",
     }),
     agentProfile: {
@@ -240,7 +240,7 @@ async function checkExists(mem: Memorai, event: Event): Promise<boolean> {
 
   try {
     const result = await mem.recall(event.id, { topK: 1, level: "segment" });
-    return result.memories.some((m) => m.provenance?.includes("eventId") && m.meta?.eventId === event.id);
+    return result.memories.some((m) => m.id === event.id);
   } catch {
     return false;
   }
@@ -258,8 +258,8 @@ async function searchChatGPT(query: string, topK = 10): Promise<{ memories: any[
       at: m.at,
       actor: m.actor,
       summary: m.summary,
-      text: m.text,
-      conversationId: m.meta?.context?.replace("conversation:", ""),
+      text: m.description || m.summary,
+      conversationId: m.id?.split(":")?.[1] || "",
       score: m.score,
       tags: m.tags,
     })),
@@ -295,7 +295,7 @@ async function getStats(): Promise<{ conversations: number; messages: number; la
     { topK: 10000 }
   );
 
-  const conversations = new Set(result.memories.map((m) => m.meta?.context)).size;
+  const conversations = new Set(result.memories.map((m) => m.id?.split(":")?.[1])).size;
   const { lastImportAt } = await chrome.storage.local.get("lastImportAt");
 
   return {

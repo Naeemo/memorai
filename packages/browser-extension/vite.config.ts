@@ -12,8 +12,8 @@ export default defineConfig({
       input: {
         background: path.resolve(__dirname, "src/background.ts"),
         content: path.resolve(__dirname, "src/content.ts"),
-        popup: path.resolve(__dirname, "src/popup/index.html"),
-        search: path.resolve(__dirname, "src/search/index.html"),
+        popup: path.resolve(__dirname, "src/popup.html"),
+        search: path.resolve(__dirname, "src/search.html"),
       },
       output: {
         entryFileNames: (chunk) => {
@@ -25,11 +25,12 @@ export default defineConfig({
         chunkFileNames: "chunks/[name].js",
         assetFileNames: "[name].[ext]",
       },
+      external: ["@xenova/transformers", "usearch", "hnswlib-node", "hnswlib-wasm"],
     },
   },
   resolve: {
     alias: {
-      "memorai": path.resolve(__dirname, "../../memorai/src/index.ts"),
+      "memorai": path.resolve(__dirname, "../../packages/memorai/src/index.ts"),
     },
   },
 });
