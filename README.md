@@ -87,7 +87,7 @@ import { OpenAIEmbeddingService, OllamaEmbeddingService } from 'memorai/embeddin
 
 Import your ChatGPT history into Memorai for local search and recall:
 
-- [📦 @memorai/chatgpt-importer](packages/chatgpt-importer/) — Chrome extension
+- [📦 @memorai/browser-extension](packages/browser-extension/) — Chrome extension
 - One-click import, semantic search, export to Markdown
 - Privacy-first: all data stays in your browser
 

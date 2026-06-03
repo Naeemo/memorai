@@ -18,7 +18,7 @@ Build a Chrome extension that imports ChatGPT conversation history into Memorai'
 Set up the Chrome extension project structure and Memorai integration.
 
 ### Tasks
-- [ ] Task 1.1: Create `packages/chatgpt-importer/` directory with `package.json` (manifest v3, Vite, TypeScript)
+- [ ] Task 1.1: Create `packages/browser-extension/` directory with `package.json` (manifest v3, Vite, TypeScript)
 - [ ] Task 1.2: Write `manifest.json` with host permissions for `chatgpt.com`, content script, background service worker, and popup
 - [ ] Task 1.3: Configure Vite build to output `content.js`, `background.js`, and `popup/` into `dist/` directory
 - [ ] Task 1.4: Initialize Memorai in `background.ts` with `IndexedDBAdapter` and `OllamaEmbeddingService` (local `nomic-embed-text`)
@@ -126,7 +126,7 @@ Add configuration, export features, and edge case handling.
 ## Phase 6: Docs & Cleanup
 
 ### Tasks
-- [ ] Task 6.1: Write `packages/chatgpt-importer/README.md` — installation, usage, Ollama setup, search page usage, export feature
+- [ ] Task 6.1: Write `packages/browser-extension/README.md` — installation, usage, Ollama setup, search page usage, export feature
 - [ ] Task 6.2: Add screenshot/GIF of import + search + export flow to README
 - [ ] Task 6.3: Update root `README.md` with "ChatGPT Importer" section linking to sub-package
 - [ ] Task 6.4: Document the recall architecture: popup (quick entry) vs search page (deep recall) vs export (external access)

@@ -1,5 +1,5 @@
 {
-  "name": "@memorai/chatgpt-importer",
+  "name": "@memorai/browser-extension",
   "version": "0.1.0",
   "description": "Chrome extension to import ChatGPT history into Memorai",
   "type": "module",

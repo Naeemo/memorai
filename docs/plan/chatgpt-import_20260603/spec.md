@@ -85,14 +85,14 @@ ChatGPT 是用户高频使用的 AI 对话工具，积累了大量有价值的�
 const memory = new Memorai({
   storage: new IndexedDBAdapter({ 
     dbName: "memorai-chatgpt",
-    namespace: "chatgpt-importer" 
+    namespace: "browser-extension" 
   }),
   embedding: new OllamaEmbeddingService({
     baseUrl: "http://localhost:11434",
     model: "nomic-embed-text",
   }),
   agentProfile: {
-    agentId: "chatgpt-importer",
+    agentId: "browser-extension",
     role: "reasoning",
     writePolicy: {
       levels: ["segment"], // 消息级，不聚合为事件

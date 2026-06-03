@@ -13,14 +13,14 @@ async function getMemory(): Promise<Memorai> {
   memory = new Memorai({
     storage: new IndexedDBAdapter({
       dbName: "memorai-chatgpt",
-      namespace: "chatgpt-importer",
+      namespace: "browser-extension",
     }),
     embedding: new OllamaEmbeddingService({
       baseUrl: "http://localhost:11434",
       model: "nomic-embed-text",
     }),
     agentProfile: {
-      agentId: "chatgpt-importer",
+      agentId: "browser-extension",
       role: "reasoning",
       writePolicy: {
         levels: ["segment"],

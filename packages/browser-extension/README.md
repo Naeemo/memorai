@@ -1,4 +1,4 @@
-# @memorai/chatgpt-importer
+# @memorai/browser-extension
 
 Chrome extension to import ChatGPT conversation history into [Memorai](https://github.com/Naeemo/memorai) for local search and recall.
 
@@ -29,7 +29,7 @@ Chrome extension to import ChatGPT conversation history into [Memorai](https://g
 
 1. Build the extension:
    ```bash
-   cd packages/chatgpt-importer
+   cd packages/browser-extension
    pnpm install
    pnpm build
    ```
@@ -38,7 +38,7 @@ Chrome extension to import ChatGPT conversation history into [Memorai](https://g
    - Open `chrome://extensions/`
    - Enable "Developer mode"
    - Click "Load unpacked"
-   - Select the `packages/chatgpt-importer/dist/` folder
+   - Select the `packages/browser-extension/dist/` folder
 
 3. Click the Memorai icon on ChatGPT page → "Import ChatGPT History"
 
