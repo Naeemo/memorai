@@ -88,7 +88,7 @@ export class USearchVectorIndex implements VectorIndex {
     void opts.initialCapacity;
   }
 
-  private ensureIndex(dimensions: number): USearchIndex {
+  private ensureIndex(_dimensions: number): USearchIndex {
     if (this.index) return this.index;
     throw new Error(
       "USearchVectorIndex: no index provided and auto-creation is not supported. " +

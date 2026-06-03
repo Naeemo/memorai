@@ -90,7 +90,7 @@ export class ScalarQuantizer implements EmbeddingQuantizer {
   }
 
   quantize(embedding: number[]): number[] {
-    const out = new Array(embedding.length);
+    const out = Array.from({ length: embedding.length });
     const usePerDim = this.min.length > 1;
     for (let i = 0; i < embedding.length; i++) {
       const idx = usePerDim ? i : 0;
@@ -105,7 +105,7 @@ export class ScalarQuantizer implements EmbeddingQuantizer {
   }
 
   dequantize(quantized: number[]): number[] {
-    const out = new Array(quantized.length);
+    const out = Array.from({ length: quantized.length });
     const usePerDim = this.min.length > 1;
     for (let i = 0; i < quantized.length; i++) {
       const idx = usePerDim ? i : 0;

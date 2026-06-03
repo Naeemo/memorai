@@ -226,7 +226,7 @@ export class HnswWasmVectorIndex implements VectorIndex {
  */
 export async function loadHnswWasm(dim: number): Promise<HnswWasmIndex> {
   try {
-    // @ts-ignore — optional peer dep, resolved at runtime
+    // @vite-ignore — optional peer dep, resolved at runtime
     const { loadHnswlib } = await import("hnswlib-wasm");
     if (typeof loadHnswlib !== "function") {
       throw new Error("hnswlib-wasm: loadHnswlib export not found");

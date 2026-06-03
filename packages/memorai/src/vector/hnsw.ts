@@ -277,7 +277,7 @@ export class HnswVectorIndex implements VectorIndex {
 export async function loadHnswlib(dim: number): Promise<HnswlibIndex> {
   try {
     // @ts-ignore — optional peer dep, resolved at runtime
-    const mod = await import("hnswlib-node");
+    const mod = await import(/* @vite-ignore */ "hnswlib-node");
     const HierarchicalNSW = mod.HierarchicalNSW ?? mod.default?.HierarchicalNSW;
     if (!HierarchicalNSW) {
       throw new Error("hnswlib-node: HierarchicalNSW export not found");
