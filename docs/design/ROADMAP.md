@@ -102,7 +102,7 @@ The Tier 1–Tier 3 building blocks are now implemented. The remaining work is i
 1. **Run LoCoMo conv-26 with current code** — establish the new baseline after the temporal-anchor fix and `resolveTime` default.
 2. **Tune default configuration** — auto-enable ANN when available, verify pathway weights, and confirm `resolveTime` improves temporal questions without regressing others.
 3. **Run full LoCoMo + ConvoMem** — publish head-to-head numbers vs. mem0 / Zep / Letta.
-4. **Browser-extension importer** — finish the ChatGPT import pipeline (`browser-extension/src/importer/` is currently empty).
+4. **Multimodal extraction** — move image/audio/video events from WrapExtractor passthrough to real captioning/transcription.
 
 After these, Memorai can credibly claim the most complete TypeScript-native agent memory stack.
 

@@ -40,15 +40,6 @@ jobs:
       - name: Build memorai
         run: pnpm --filter memorai build
 
-      - name: Typecheck browser-extension
-        run: pnpm --filter @memorai/browser-extension check
-
-      - name: Test browser-extension
-        run: pnpm --filter @memorai/browser-extension test
-
-      - name: Build browser-extension
-        run: pnpm --filter @memorai/browser-extension build
-
   benchmark-smoke:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
