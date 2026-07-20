@@ -228,7 +228,12 @@ export class RetrievalEngine {
       if (query.userId !== undefined) filter.userId = query.userId;
       if (query.actor !== undefined) filter.actor = query.actor;
       if (query.target !== undefined) filter.target = query.target;
-      if (query.level !== undefined) filter.level = query.level;
+      // Level filtering is intentionally NOT pushed into the vector index.
+      // The no-index path scans every level, and `applyStrategyFilters`
+      // already applies the requested level with a graceful fallback. Keeping
+      // the semantic pathway level-agnostic avoids surprising empty results
+      // when the corpus is still mostly segments and the default read level
+      // is "episode".
       if (query.timeRange) {
         filter.timestamp = { range: query.timeRange };
       }

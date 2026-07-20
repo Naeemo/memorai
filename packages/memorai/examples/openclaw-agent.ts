@@ -47,7 +47,7 @@ export async function onHeartbeat() {
   await memory.evolve();
 
   // Check if there's anything important the agent should know
-  const recent = await memory.retrieve({
+  const recent = await memory.recall("What happened recently?", {
     strategy: "temporal",
     timeRange: {
       start: Date.now() - 30 * 60 * 1000, // last 30 minutes
@@ -56,10 +56,10 @@ export async function onHeartbeat() {
     topK: 5,
   });
 
-  if (recent.nodes.length > 0) {
+  if (recent.memories.length > 0) {
     console.log(
       "[Heartbeat] Recent memories:",
-      recent.nodes.map((n) => n.annotations.summary ?? n.raw.text ?? ""),
+      recent.memories.map((m) => m.summary),
     );
   }
 }

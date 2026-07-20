@@ -5,7 +5,7 @@ import { InMemorySkillStore, SkillExtractor } from "./skills/index.js";
 import type { ProceduralSkill, SkillExtractionOptions, SkillExtractionResult, SkillStore } from "./skills/index.js";
 import { cosineSimilarity, generateId } from "./utils.js";
 import { LightExtractor, LLMExtractor, composeIndexableText } from "./extraction/index.js";
-import { InMemoryEventStore, LLMEventIdentifier } from "./events/index.js";
+import { createDefaultEventStore, LLMEventIdentifier } from "./events/index.js";
 import { resolveTimeExpression } from "./temporal/index.js";
 import { InMemoryWorkingMemory } from "./working/index.js";
 import { DefaultRetentionPolicy } from "./retention/index.js";
@@ -48,6 +48,7 @@ import type {
   RecallResult,
   RecalledMemory,
   RecordHandle,
+  RerankerService,
   RetrievalQuery,
   RetrievalResult,
   SubscribeFilter,
@@ -55,6 +56,8 @@ import type {
   WriteOptions,
   WritePayload,
 } from "./types.js";
+import { AutoVectorIndex } from "./vector/auto.js";
+import { AutoReranker } from "./reranker-auto.js";
 import type { VectorIndex } from "./vector/types.js";
 import type { EntityGraph, GraphEdge, GraphPath, UpsertEdgeInput } from "./graph/types.js";
 import type { WorkingMemory } from "./working/types.js";
@@ -119,6 +122,8 @@ export class Memorai {
   private readonly intentClassifier: IntentClassifier;
   private readonly evolveMode: "auto" | "manual";
   private readonly triggers: typeof DEFAULT_TRIGGERS;
+  private readonly defaultResolveTime: boolean;
+  private readonly reranker?: RerankerService;
   private writesSinceEvolve = 0;
   private stmCount = 0;
   private idleTimer?: ReturnType<typeof setTimeout>;
@@ -128,7 +133,8 @@ export class Memorai {
   readonly federation: MemoryFederation = new MemoryFederation();
 
   constructor(private readonly config: MemoraiConfig) {
-    this.vectorIndex = config.vectorIndex;
+    this.vectorIndex =
+      config.vectorIndex ?? new AutoVectorIndex({ dimension: config.embedding.dimension });
     this.entityGraph = config.entityGraph;
     this.skillStore = config.skillStore ?? new InMemorySkillStore();
     this.workingMemory = config.workingMemory ?? new InMemoryWorkingMemory();
@@ -139,6 +145,8 @@ export class Memorai {
     this.evolveMode = config.evolution?.mode ?? "auto";
     this.triggers = { ...DEFAULT_TRIGGERS, ...config.evolution?.autoTriggers };
     this.intentClassifier = config.intentClassifier ?? new RuleBasedIntentClassifier();
+    this.defaultResolveTime = config.defaultResolveTime ?? true;
+    this.reranker = config.reranker ?? new AutoReranker();
 
     if (config.extractor) {
       this.extractor = config.extractor;
@@ -149,8 +157,10 @@ export class Memorai {
     }
 
     this.eventStore =
-      config.events ?? new InMemoryEventStore({
-        vectorIndex: config.eventVectorIndex,
+      config.events ??
+      createDefaultEventStore({
+        vectorIndex:
+          config.eventVectorIndex ?? new AutoVectorIndex({ dimension: config.embedding.dimension }),
         namespace: config.namespace,
       });
     if (config.identifier) {
@@ -244,6 +254,9 @@ export class Memorai {
    * When `MemoraiConfig.reranker` is set, a final reranker pass refines the
    * top-N candidates for precision. All expansion modes and reranking are
    * opt-in and gracefully no-op when their dependencies aren't configured.
+   *
+   * Temporal expression resolution (`opts.resolveTime`) defaults to true
+   * unless `MemoraiConfig.defaultResolveTime` is set to false.
    */
   async recall(question: string, opts: RecallOptions = {}): Promise<RecallResult> {
     const { result } = await this._recallInternal(question, opts);
@@ -271,11 +284,12 @@ export class Memorai {
   ): Promise<{ result: RecallResult; explainResult?: ExplainResult }> {
     const tracker = spanTracker();
     const topK = opts.topK ?? 10;
-    const preRerankTopK = this.config.reranker ? Math.min(topK * 3, 30) : topK;
+    const preRerankTopK = this.reranker ? Math.min(topK * 3, 30) : topK;
 
     const endTemporal = tracker.start("temporal-resolution");
+    const shouldResolveTime = opts.resolveTime ?? this.defaultResolveTime;
     const effectiveOpts =
-      opts.resolveTime && !opts.timeRange ? await this.applyTemporalResolution(question, opts) : opts;
+      shouldResolveTime && !opts.timeRange ? await this.applyTemporalResolution(question, opts) : opts;
     endTemporal();
 
     // S1: Adaptive pathway selection — classify query intent before retrieval.
@@ -287,7 +301,6 @@ export class Memorai {
 
     const endNodes = tracker.start("node-recall", { variants: 0, intent });
     const nodeResult = await this.recallNodes(question, effectiveOpts, preRerankTopK, intent);
-    endNodes();
     endNodes();
 
     let eventMemories: RecalledMemory[] = [];
@@ -302,7 +315,7 @@ export class Memorai {
     endFusion();
 
     let result: RecallResult;
-    if (!this.config.reranker || preRerank.memories.length === 0) {
+    if (!this.reranker || preRerank.memories.length === 0) {
       result = {
         memories: preRerank.memories.slice(0, topK),
         confidence: preRerank.confidence,
@@ -2283,7 +2296,7 @@ export class Memorai {
     preRerank: RecallResult,
     topK: number,
   ): Promise<RecallResult> {
-    const reranker = this.config.reranker!;
+    const reranker = this.reranker!;
     const docs = preRerank.memories.map((m) => ({
       id: m.id,
       text: [m.summary, m.description ?? ""].filter(Boolean).join(" — "),
@@ -2868,6 +2881,11 @@ export {
   loadXenovaCrossEncoder,
   type CrossEncoderScoreFn,
 } from "./reranker-transformers.js";
+export {
+  AutoReranker,
+  type AutoRerankerBackend,
+  type AutoRerankerOptions,
+} from "./reranker-auto.js";
 export { IndexedDBAdapter, MemoryAdapter } from "./storage/index.js";
 export {
   CLIPEmbedder,
@@ -2905,6 +2923,8 @@ export {
   type MultimodalExtractorOptions,
 } from "./extraction/index.js";
 export {
+  AutoVectorIndex,
+  createAutoVectorIndex,
   BruteForceVectorIndex,
   HnswVectorIndex,
   HnswWasmVectorIndex,
@@ -2914,6 +2934,8 @@ export {
   loadUSearch,
   matchFilter,
   matchFilterClause,
+  type AutoVectorBackend,
+  type AutoVectorIndexOptions,
   type HnswlibIndex,
   type HnswVectorIndexOptions,
   type HnswWasmIndex,
@@ -2993,6 +3015,16 @@ export {
   type SkillStep,
   type SkillStore,
 } from "./skills/index.js";
+export {
+  runEval,
+  type EvalRunner,
+  type EvalTurn,
+  type EvalQA,
+  type EvalConversation,
+  type EvalRunRecord,
+  type EvalCategoryStats,
+  type EvalRunResult,
+} from "./eval/index.js";
 
 // Suppress unused import warnings for types that are re-exported via types.js
 export type {

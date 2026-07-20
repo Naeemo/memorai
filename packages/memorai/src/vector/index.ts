@@ -1,3 +1,4 @@
+export { AutoVectorIndex, createAutoVectorIndex, type AutoVectorBackend, type AutoVectorIndexOptions } from "./auto.js";
 export { BruteForceVectorIndex } from "./brute-force.js";
 export {
   HnswVectorIndex,

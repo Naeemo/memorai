@@ -1,7 +1,7 @@
 # Memorai — World-Class Roadmap
 
-> **Date:** 2026-05-18
-> **Baseline:** v0.4.0 (LoCoMo conv-26 36.84% wrap+identifier, LongMemEval oracle 75%)
+> **Date:** 2026-07-18
+> **Baseline:** v0.5.0 (LoCoMo conv-26 33.55%, LongMemEval oracle 92%)
 > **Goal:** Architectural review + prioritized plan to take Memorai from "promising" to *the* canonical agent memory library, designed for today's agents and what's coming next.
 
 ---
@@ -15,155 +15,96 @@ Memorai already has the right *spine* for a world-class agent memory library, an
 - **Multi-pathway RRF with per-pathway provenance** is rare and useful. Most libs return scored docs with no explanation; Memorai can trace *why* a memory surfaced.
 - **Runtime-agnostic by design** is unusual — unlocks browser/embedded scenarios competitors don't reach.
 
-The honest read on benchmarks: 36.84% on LoCoMo conv-26 is real progress from 21.71%, but published mem0-class numbers on full LoCoMo sit in the 60s. **Closing that gap, and going beyond it for the next wave of agents, is the actual "world-class" agenda.**
+The honest read on benchmarks: 33.55% on LoCoMo conv-26 is behind published mem0/Zep-class numbers on full LoCoMo (Zep ~75-85%, mem0 ~60s). **The Phase A infrastructure (temporal anchors, weighted graph paths, event cross-linking, LLM temporal resolution) is implemented; the remaining work is tuning defaults and verifying the new baseline.**
 
 ---
 
 ## Tier 1 — Foundations you can't be "world-class" without
 
-### 1. Vector index abstraction (ANN)
+### 1. Vector index abstraction (ANN) ✅
 
-`semanticPathway` in `retrieval.ts:189` does `storage.listAll()` + linear cosine. `InMemoryEventStore.queryEventsByEmbedding` is the same. At 10K nodes per user the system feels slow; at 100K it's broken.
+`VectorIndex` interface ships in `src/vector/types.ts` with `upsert`, `query`, `delete`, and `clear`. Implementations include `HnswVectorIndex` (`hnswlib-node`), `HnswWasmVectorIndex` (`hnswlib-wasm`), `USearchVectorIndex` (`usearch`), and `BruteForceVectorIndex`. `RetrievalEngine.semanticPathway` uses a configured `vectorIndex` when present and falls back to `storage.listAll()` + cosine otherwise.
 
-**Plan:**
-- New `VectorIndex` interface alongside `StorageAdapter`: `addVector(id, vec, filter?)`, `queryVector(vec, topK, filter?)`, `delete(id)`, `rebuild()`.
-- Ship `HnswVectorIndex` (`hnswlib-wasm` or `hnswlib-node`) + a `BruteForceVectorIndex` fallback that wraps current logic.
-- Adapters optionally expose `getVectorIndex(): VectorIndex | null` — present → retrieval uses it, absent → fall back.
+**Remaining:** default to an ANN index automatically instead of requiring callers to wire it up.
 
-**Outcome:** scales to 10M+ memories honestly. 2-week project, mostly mechanical.
+### 2. First-class temporal grounding ✅
 
-### 2. First-class temporal grounding
+`resolveTimeExpression` heuristic resolver covers "yesterday", "last week", "in March", etc. `TemporalAnchor` metadata is extracted by `LightExtractor` and `LLMExtractor`, stored on nodes, and queried via `StorageAdapter.queryByTemporalAnchor`. A `temporalAnchorPathway` runs in retrieval for entity/temporal queries, and `Memorai.applyTemporalResolution` adds Tier 2 (anchor-relative) and Tier 3 (LLM-assisted) resolution. `resolveTime` now defaults to `true` in `recall()` (configurable via `MemoraiConfig.defaultResolveTime`).
 
-8.1% on temporal LoCoMo is the published weak spot. The `temporal` strategy only applies recency decay.
+### 3. Knowledge graph layer over triples ✅
 
-**Plan:**
-- A **time-expression resolver** at query time: "last Tuesday", "in March", "before the migration" → `timeRange`. Heuristic parser + optional LLM fallback.
-- **Temporal anchors as first-class metadata** on every event/MemoryEvent: `{ absolute?: number, relativeTo?: { eventId, deltaMs } }`. Enables "what did Alice say *before* the migration started" as a precise query.
-- A `temporal-anchor` pathway in retrieval that scores anchor proximity, not just recency.
+`EntityGraph` interface ships in `src/graph/types.ts` with `upsertEntity`, `upsertEdge`, `queryPaths`, `queryPathsWeighted`, and `queryNeighbors`. Backends: `InMemoryEntityGraph`, `SQLiteEntityGraph`, `IndexedDBEntityGraph`. `LLMExtractor` emits `KnowledgeTriple`, `Memorai.write` persists them to the graph, and `RetrievalEngine.graphPathway` fuses graph neighbors into recall via RRF with confidence-weighted best-first traversal.
 
-### 3. Knowledge graph layer over triples
+### 4. User profile / materialized "what I know about you" view ✅
 
-`LLMExtractor` already produces `KnowledgeTriple`. They sit on `annotations.triples` but there's no graph storage, no traversal, no path query. Most visible structural gap vs. Zep/Graphiti.
+State events (`MemoryEventKind: "state"`) are extracted by `LLMEventIdentifier`, invalidated via `supersedes` / `invalidatedAt`, and surfaced through the event-level recall pathway. `tests/profile.test.ts` validates profile-style recall. A dedicated materialized `getUserFacts(userId, topic?)` view remains future polish.
 
-**Plan:**
-- `EntityGraph` interface: `upsertNode`, `upsertEdge(s, p, o, sourceEventId, validAt?, invalidatedAt?)`, `queryPaths(from, to, maxDepth)`, `queryNeighbors(entity, predicate?)`.
-- In-memory default + SQLite adapter mirroring `events/store.ts`.
-- Graph traversal becomes another **retrieval pathway** fused via RRF.
-- Triples participate in event identification: `supersedes` keyed on `(subject, predicate)` gives precise belief-revision grounded in existing 0.4.0 work.
+### 5. Working memory / scratchpad layer ✅
 
-### 4. User profile / materialized "what I know about you" view
-
-Mem0's selling point is `Alice prefers tea over coffee` surfaced *directly*. MemoryEvent layer can hold this as `kind: state`, but it isn't queryable as a profile — every recall goes through full retrieval + LLM rerank.
-
-**Plan:**
-- A derived profile store: for each `(userId, primaryParticipant)`, materialize the currently-valid `state` events plus their topics. Queryable as `getUserFacts(userId, topic?)`.
-- Maintained on `state` event insert/supersede (most plumbing exists).
-- `recall()` surfaces it automatically as a preamble when the question is identity-shaped.
-
-### 5. Working memory / scratchpad layer
-
-Memorai only has LTM. Real agents need a fast structured workspace that doesn't get HME-merged or LLM-extracted — current task, current beliefs, pending steps, intermediate tool outputs.
-
-**Plan:**
-- `Memorai.workingMemory()` returning a typed scratchpad: `set/get/append/clear` with optional TTL.
-- Stored under `level: "working"`, excluded from HME and default recall unless `includeWorking: true`.
-- Aged working entries become reflection candidates ("promote to a real memory?").
+`Memorai.workingMemory` is exposed as a typed `WorkingMemory` scratchpad with `set`, `get`, `append`, `delete`, `clear`, and TTL support. Default implementation is `InMemoryWorkingMemory`; persistent backends can be injected via `MemoraiConfig.workingMemory`. Working entries are excluded from HME and default recall.
 
 ---
 
 ## Tier 2 — Differentiators for the next generation of agents
 
-### 6. Procedural memory (tool calls / code / plans)
+### 6. Procedural memory (tool calls / code / plans) ✅
 
-Today's agents are tool-using. There is no `EventContent.kind: "tool_call"`, no "I tried this and it failed" memory. Without this, agents repeat tool failures.
+`EventContent` includes `tool_call` and `plan_step` kinds. `RetrievalEngine` has a `procedural` strategy that boosts `tool_call` nodes (especially failed calls) and applies a faster recency decay. `SkillExtractor` / `SkillStore` turn repeated successful tool patterns into reusable `ProceduralSkill`s surfaced via `recallSkills()`.
 
-**Plan:**
-- Add `EventContent` kinds: `tool_call` (`{ tool, args, result, success, durationMs, errorClass? }`) and `plan_step`.
-- A `procedural` retrieval strategy that surfaces "the last N times I tried tool X with similar args."
-- Built-in `proceduralExtractor` that pulls tool-success signals automatically.
+### 7. Belief revision + self-reflection hooks ✅
 
-**Outcome:** the difference between "memory" and "agent skills" — and the JS ecosystem has nobody filling this role.
+`Memorai.reviseBelief()` creates a new state event that supersedes older ones, tracking `revisionDepth` and `revisionReason`. `LLMContradictionDetector` (and `detectContradictions()`) flags conflicts between new assertions and currently-valid state events. `Memorai.reflect()` generates insights from recent event patterns and persists them as new MemoryEvents.
 
-### 7. Belief revision + self-reflection hooks
+### 8. Forgetting + consolidation policy ✅
 
-`MemoryEvent.supersedes` is a perfect substrate for belief revision, but only `LLMEventIdentifier` triggers it. Agents should be able to *explicitly* say "I learned my prior belief about X was wrong, here's the new one."
+`RetentionPolicy` interface and `DefaultRetentionPolicy` ship in `src/retention/`. `Memorai.forget()` scores nodes by salience + recency + access frequency and evicts Tier 2/3 while preserving the immutable Tier 1 raw timeline. Forgetting is opt-in; callers decide when to invoke it.
 
-**Plan:**
-- `Memorai.reviseBelief({ supersedes, newDescription, occurredAt, reason })` — creates a new state event invalidating the old, with `reason` attached as provenance.
-- Passive contradiction detector during `evolve()`: cluster state events by `(participants, topic)`, flag conflicts via callback for the agent to reconcile.
-- Track a `revisionChain` per event so callers can show "third update on Alice's preferences."
+### 9. Multi-agent / shared memory primitives ✅
 
-### 8. Forgetting + consolidation policy
+`namespace` is a first-class partition key across `MemoryAdapter`, `IndexedDBAdapter`, `SQLiteAdapter`, and `InMemoryEventStore`. `AgentMemoryProfile` defines per-agent read/write policies. `Memorai.subscribe(filter, callback)` delivers proactive notifications on matching writes. `MemoryFederation` provides serialized memory slices for cross-instance / cross-device sharing.
 
-STM-full triggers exist but there's no actual forgetting model. True lifelong memory needs decay.
+### 10. Streaming ingest with backpressure ✅
 
-**Plan:**
-- `RetentionPolicy` interface: `score(node, now): number`, `shouldEvict(node, ctx): boolean`.
-- Default: `retention = 0.5*salience + 0.3*recency_decay + 0.2*log(1+accessCount)`. Below threshold + age > N → evict Tier 2/3, keep Tier 1 (immutable promise stays).
-- Consolidation in `evolve()`: high-retention nodes get re-extracted into stronger episodes; low-retention groups merge into a single "background context" node.
-
-### 9. Multi-agent / shared memory primitives
-
-Today `agentProfile` + `userId` are filters, not partitions; no subscriptions or federation.
-
-**Plan:**
-- `namespace` becomes a partition key — adapters get a `namespace?` param on every method and can physically partition.
-- `Memorai.subscribe(filter, callback)` — proactive agents register interest, notified post-write.
-- `MemoryFederation` primitive — instances share a tag set with peers, peer pulls via a serialized read API. Seed for multi-device / multi-agent memory.
-
-### 10. Streaming ingest with backpressure
-
-`recordEvent` is fine for chat but observation-heavy agents write 50–500 events/sec.
-
-**Plan:**
-- `recordStream(asyncIter)` that buffers, dedupes (hash, `(participant, topic, time-bucket)`), batches embeddings.
-- Explicit backpressure: STM at 80% → slow producers; at 100% → drop or downgrade extractor.
-- Low-level Tier-1-only `appendRaw(content)` path that skips Tier 2/3, queued for batch extraction later.
+`Memorai.recordStream(events)` accepts an async iterable, batches events, dedupes by `(participant, topic, time-bucket)`, and uses `embedBatch` when available. A `StreamController` exposes backpressure signals (`isFull`, `isDrained`) and supports pause/resume. Tier-1-only fast path remains future optimization.
 
 ---
 
 ## Tier 3 — Quality, ops, and DX
 
-### 11. Cross-encoder reranker (not LLM)
+### 11. Cross-encoder reranker (not LLM) ✅
 
-`LLMReranker` is expensive and slow. A loadable cross-encoder (`BAAI/bge-reranker-base` via `@xenova/transformers`) reranks 30 docs in ~50ms vs. seconds + dollars. Ship `TransformersReranker`.
+`TransformersReranker` in `src/reranker-transformers.ts` loads `Xenova/bge-reranker-base` via `@xenova/transformers` and plugs into `MemoraiConfig.reranker`. `LLMReranker` is also available for setups without the transformers peer dependency.
 
-### 12. Persistent EventStore implementations
+### 12. Persistent EventStore implementations ✅
 
-Only `InMemoryEventStore` ships. Multi-tenant deployments need a persistent option. Add `SQLiteEventStore` and `IndexedDBEventStore` — the patterns from `storage/` translate directly.
+`SQLiteEventStore` and `IndexedDBEventStore` ship alongside the default `InMemoryEventStore`. They mirror the `EventStore` interface and persist MemoryEvents, validity windows, and access metadata.
 
-### 13. Observability + eval framework
+### 13. Observability + eval framework ✅
 
-- OTel-style spans for every recall phase (semantic, BM25, expand, HyDE, rerank).
-- Bake the benchmark harness into the published package as `memorai/eval`.
-- `Memorai.explain(question, opts)` returns the candidate set + per-pathway scores + filter decisions without LLM rerank — for debugging.
+`Memorai.explain(question, opts)` returns timing spans, pathway activation, fusion math, and per-pathway scores. `onRecall` callback exposes the same spans for external monitoring. The benchmark harness lives in `packages/benchmarks` and is not yet published as `memorai/eval`.
 
-### 14. Resolve LLM-extractor + identifier noise
+### 14. Resolve LLM-extractor + identifier noise ✅
 
-`packages/benchmarks/results/published/README.md` notes `llm-extract + identifier-llm` is **-3.9pp** vs. identifier alone. In `composeIndexableText`, `annotations.summary` competes with the event-level canonical description.
+When a node is covered by a `MemoryEvent`, `MemoryMeta.coveredByEvent` is set and `composeIndexableText` suppresses the node's `annotations.summary` so the event's canonical description remains the single source of truth. The node still indexes `raw.text`, `facts`, `description`, and `tags` for literal/paraphrased matching.
 
-**Two paths:**
-- Cheap: when a `MemoryEvent` covers a node, suppress `summary` from `composeIndexableText` for that node.
-- Right: store summary and event-description in separate indexed text fields and let pathways query them independently.
+### 15. DX cleanup 🔄
 
-### 15. DX cleanup
-
-- `examples/node-server.ts` uses `@internal` `write`/`retrieve`. Rewrite to public Event API or relax `@internal` markers.
-- Plan a 1.0 cleanup of `MemoryPayload` / `MemoryPayloadInput` back-compat aliases.
-- Make `extensions` typed: `Memorai<Ext extends Record<string, unknown>>` generic.
+- ✅ Examples updated to public Event API (`cross-agent.ts`, `openclaw-agent.ts`; `node-server.ts` and `browser-assistant.ts` already used it).
+- ✅ `MemoryPayload` / `MemoryPayloadInput` back-compat aliases already removed.
+- 🔄 `extensions` generic propagation (`Memorai<Ext>`) remains future 1.0 work.
 
 ---
 
-## Highest-leverage first 4 (work plan)
+## Highest-leverage next steps
 
-In order:
+The Tier 1–Tier 3 building blocks are now implemented. The remaining work is integration, tuning, and verification:
 
-1. **Vector index abstraction (Tier 1 #1)** — unlocks scale, foundational, mostly mechanical work.
-2. **Knowledge graph layer (Tier 1 #3)** — closes the most visible gap with Zep/Graphiti, triples already exist.
-3. **Procedural memory + tool-call kind (Tier 2 #6)** — where the next generation of agents lives, JS ecosystem is empty here.
-4. **Temporal grounding (Tier 1 #2)** + **user-profile view (Tier 1 #4)** — together these close the published-benchmark gap with mem0.
+1. **Run LoCoMo conv-26 with current code** — establish the new baseline after the temporal-anchor fix and `resolveTime` default.
+2. **Tune default configuration** — auto-enable ANN when available, verify pathway weights, and confirm `resolveTime` improves temporal questions without regressing others.
+3. **Run full LoCoMo + ConvoMem** — publish head-to-head numbers vs. mem0 / Zep / Letta.
+4. **Browser-extension importer** — finish the ChatGPT import pipeline (`browser-extension/src/importer/` is currently empty).
 
-After those, Memorai can publish a head-to-head with mem0 + Letta on full LoCoMo, and the architecture would be visibly more general than either.
+After these, Memorai can credibly claim the most complete TypeScript-native agent memory stack.
 
 ---
 

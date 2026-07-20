@@ -181,7 +181,9 @@ export class StreamIngestor {
     this.processing = true;
 
     try {
-      while (this.queue.length > 0 && !this.closed) {
+      // Drain the queue even after `closed` is set — close() should flush
+      // everything that was accepted before shutdown.
+      while (this.queue.length > 0) {
         const batch = this.queue.splice(0, this.batchSize);
         if (batch.length === 0) break;
 

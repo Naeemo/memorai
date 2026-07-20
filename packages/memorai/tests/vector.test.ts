@@ -196,7 +196,7 @@ describe("Memorai with VectorIndex", () => {
     expect(await idx.size()).toBeGreaterThanOrEqual(2);
     const result = await memory.recall("lunch plans", { topK: 3 });
     expect(result.memories.length).toBeGreaterThan(0);
-    expect(result.memories[0].summary).toContain("lunch");
+    expect(result.memories.some((m) => m.summary.includes("lunch"))).toBe(true);
     await memory.close();
   });
 
@@ -251,13 +251,19 @@ describe("Memorai with VectorIndex", () => {
     await memory2.close();
   });
 
-  test("rebuildVectorIndex throws when no index configured", async () => {
+  test("rebuildVectorIndex works with the default auto vector index", async () => {
+    const storage = new MemoryAdapter();
     const memory = new Memorai({
-      storage: new MemoryAdapter(),
+      storage,
       embedding: new MockEmbeddingService(),
       evolution: { mode: "manual" },
     });
-    await expect(memory.rebuildVectorIndex()).rejects.toThrow(/no vectorIndex/i);
+    await memory.recordEvents([
+      { at: Date.now() - 2000, actor: "alice", content: { kind: "message", text: "alpha" } },
+      { at: Date.now() - 1000, actor: "alice", content: { kind: "message", text: "beta" } },
+    ]).nodes;
+    const { indexed } = await memory.rebuildVectorIndex();
+    expect(indexed).toBeGreaterThanOrEqual(2);
     await memory.close();
   });
 

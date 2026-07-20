@@ -26,6 +26,7 @@ export default defineConfig({
       "temporal/index": "src/temporal/index.ts",
       "working/index": "src/working/index.ts",
       "retention/index": "src/retention/index.ts",
+      "eval/index": "src/eval/index.ts",
     },
     dts: true,
     platform: "neutral",
@@ -33,6 +34,6 @@ export default defineConfig({
     clean: true,
   },
   fmt: {
-    ignorePatterns: ["dist"],
+    ignorePatterns: ["dist", "dist-cjs"],
   },
 });

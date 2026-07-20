@@ -74,6 +74,22 @@ Chrome extension to import ChatGPT conversation history into [Memorai](https://g
 | `create_time` | `at` (Unix ms) |
 | `conversation.title` | `tags` |
 
+## Importer Structure
+
+The import pipeline is modular under `src/importer/`:
+
+```
+src/importer/
+├── types.ts     — Shared ChatGPT / progress types
+├── api.ts       — ChatGPT backend API client (pagination, detail fetch)
+├── mapper.ts    — Conversation → Memorai Event mapping
+├── dedup.ts     — Idempotency check by deterministic event id
+├── pipeline.ts  — Orchestration: fetch → map → dedupe → record
+└── index.ts     — Barrel exports
+```
+
+`background.ts` consumes `runImport()` from the pipeline and reports progress via callback.
+
 ## Development
 
 ```bash

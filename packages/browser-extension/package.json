@@ -7,15 +7,17 @@
     "build": "vite build",
     "dev": "vite build --watch",
     "check": "tsc --noEmit",
-    "lint": "oxlint ."
+    "lint": "npx oxlint .",
+    "test": "npx vitest run tests/"
   },
   "dependencies": {
     "memorai": "workspace:*"
   },
   "devDependencies": {
+    "@types/chrome": "^0.0.316",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5.8.0",
     "vite": "^6.4.0",
-    "@types/chrome": "^0.0.316",
-    "tailwindcss": "^4.0.0"
+    "vitest": "^3.2.4"
   }
 }

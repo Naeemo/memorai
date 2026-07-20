@@ -33,24 +33,20 @@ const memory = new Memorai({
   embedding: new OpenAIEmbeddingService({ apiKey: 'sk-...' }),
 })
 
-// Write a memory
-const node = await memory.write({
-  payload: {
-    summary: 'User opened VS Code and started editing architecture.md',
-    tags: ['coding', 'vscode'],
-    salienceScore: 0.9,
-    modality: ['text'],
+// Record an event
+await memory.recordEvent({
+  at: Date.now(),
+  actor: 'user',
+  content: {
+    kind: 'observation',
+    text: 'User opened VS Code and started editing architecture.md',
   },
-})
+}).nodes
 
-// Retrieve
-const result = await memory.retrieve({
-  strategy: 'factual',
-  text: 'What was the user working on?',
-  topK: 5,
-})
+// Recall with automatic temporal resolution
+const result = await memory.recall('What was the user working on?', { topK: 5 })
 
-console.log(result.nodes.map((n) => n.payload.summary))
+console.log(result.memories.map((m) => m.summary))
 ```
 
 ---
@@ -80,6 +76,13 @@ import { MemoryAdapter, IndexedDBAdapter, SQLiteAdapter } from 'memorai/storage'
 // Embedding services
 import { OpenAIEmbeddingService, OllamaEmbeddingService } from 'memorai/embeddings'
 ```
+
+**Bundle size:** the full `memorai` entry is ~56 KB gzipped. Use subpath imports to keep bundles smaller:
+
+- `memorai/storage` — ~8.5 KB gzip
+- `memorai/graph` — ~6.5 KB gzip
+- `memorai/vector` — ~5.9 KB gzip
+- `memorai/embeddings` — ~1.9 KB gzip
 
 ---
 
@@ -128,9 +131,11 @@ These are controlled-environment tests with pre-defined conditions. **Not compar
 | Scalability | 100% | Write/read latency at 1,000 memory corpus | Sequential ingestion, single user |
 | Cross-Agent Isolation | 100% | Memory boundary enforcement between agent profiles | Two fixed profiles, no overlap |
 
-**Latest run:** 2026-05-15
+**Latest run:** 2026-07-18
 **Models:** `nomic-embed-text` (embeddings) · `gemma4:31b-cloud` (LLM judge)
 **Batch write speedup:** 2.3× over sequential ingestion.
+
+**Recent changes:** `recall()` now resolves temporal expressions (`"yesterday"`, `"last week"`, etc.) automatically. Disable with `defaultResolveTime: false` in config or `resolveTime: false` per call.
 
 Run benchmarks yourself:
 

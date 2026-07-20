@@ -54,8 +54,38 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ─── Settings ───
+  const settingsPanel = document.getElementById("settings-panel")!;
+  const ollamaUrlInput = document.getElementById("ollama-url") as HTMLInputElement;
+  const ollamaModelInput = document.getElementById("ollama-model") as HTMLInputElement;
+  const saveSettingsBtn = document.getElementById("save-settings-btn") as HTMLButtonElement;
+  const clearDataBtn = document.getElementById("clear-data-btn") as HTMLButtonElement;
+
+  async function loadSettings() {
+    const { ollamaUrl, ollamaModel } = await chrome.storage.local.get(["ollamaUrl", "ollamaModel"]);
+    ollamaUrlInput.value = ollamaUrl ?? "http://localhost:11434";
+    ollamaModelInput.value = ollamaModel ?? "nomic-embed-text";
+  }
+
   settingsBtn.addEventListener("click", () => {
-    alert("Settings: Configure Ollama URL and model\n\nDefault: http://localhost:11434\nModel: nomic-embed-text");
+    settingsPanel.classList.toggle("hidden");
+    loadSettings();
+  });
+
+  saveSettingsBtn.addEventListener("click", async () => {
+    await chrome.storage.local.set({
+      ollamaUrl: ollamaUrlInput.value.trim() || "http://localhost:11434",
+      ollamaModel: ollamaModelInput.value.trim() || "nomic-embed-text",
+    });
+    statusEl.textContent = "Settings saved";
+    setTimeout(() => { statusEl.textContent = ""; }, 2000);
+  });
+
+  clearDataBtn.addEventListener("click", async () => {
+    if (!confirm("Delete all imported conversations and messages? This cannot be undone.")) return;
+    await chrome.runtime.sendMessage({ type: "CLEAR_ALL" });
+    await chrome.storage.session.clear();
+    statusEl.textContent = "All data cleared";
+    loadStats();
   });
 
   // ─── Helpers ───

@@ -136,4 +136,30 @@ describe("StreamIngestor", () => {
     expect(s.dropped).toBeGreaterThanOrEqual(1);
     await memory.close();
   });
+
+  test("high-throughput burst exercises backpressure and batching", async () => {
+    const memory = makeMemory();
+    let backpressureCalls = 0;
+    let droppedCalls = 0;
+    const s = new StreamIngestor(memory, {
+      maxQueueDepth: 100,
+      batchSize: 10,
+      flushIntervalMs: 10_000, // rely on batch-size flushes only
+      onBackpressure: () => backpressureCalls++,
+      onDrop: () => droppedCalls++,
+    });
+
+    // Burst 500 events with no artificial delay.
+    for (let i = 0; i < 500; i++) {
+      s.push(event(`burst-${i}`));
+    }
+
+    await s.close();
+
+    // With batchSize 10 and no delay, the queue should have hit 80% at least once.
+    expect(backpressureCalls).toBeGreaterThanOrEqual(1);
+    // All 500 events should eventually be written because we close and flush.
+    expect(s.written + s.dropped).toBe(500);
+    await memory.close();
+  });
 });

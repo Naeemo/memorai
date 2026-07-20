@@ -1114,6 +1114,14 @@ export interface MemoraiConfig {
   /** Logical namespace (multi-tenant separation). */
   namespace?: string;
   /**
+   * Default value for `RecallOptions.resolveTime` when the caller does not
+   * explicitly set it. When true (the default), `recall()` attempts to
+   * resolve temporal expressions ("yesterday", "last week", "before the
+   * migration") into concrete `timeRange` filters. Set to false to keep the
+   * v0.5.0 opt-in behavior.
+   */
+  defaultResolveTime?: boolean;
+  /**
    * Optional observability hook — called after every `recall()` with the
    * question, result, and timing spans. Useful for monitoring, logging,
    * or debugging recall quality in production.

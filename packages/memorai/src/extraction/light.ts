@@ -24,6 +24,15 @@ export class LightExtractor implements Extractor {
     annotations.salienceScore = salience;
     const anchors = extractTemporalAnchors(text);
     if (anchors.length > 0) {
+      // Fill start/end from event timestamp so relative-time queries work
+      const eventAt =
+        event.at instanceof Date ? event.at.getTime() : (event.at ?? ctx.now());
+      for (const a of anchors) {
+        if (a.start === undefined) a.start = eventAt;
+        if (a.type === "range" && a.end === undefined) {
+          a.end = eventAt + 3600000; // default 1h range
+        }
+      }
       annotations.temporalAnchors = anchors;
     }
     base.annotations = annotations;

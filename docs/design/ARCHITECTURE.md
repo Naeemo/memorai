@@ -1,7 +1,7 @@
 # Memorai Architecture
 
 > **Version:** 0.5.0
-> **Date:** 2026-05-17
+> **Date:** 2026-07-18
 > **Based on:** StreamingClaw StreamingMemory (arXiv:2603.22120v2) + mem0/Letta lessons + production benchmark feedback
 > **Goal:** A runtime-agnostic, multimodal **event-based** memory layer for AI agents — an "efficient memory that never forgets".
 
@@ -1021,6 +1021,45 @@ The first five phases produced the internal Memory API. Phase 6 wrapped it with 
 - [x] `packages/benchmarks/src/providers/memorai.ts` switched to single Memorai + `recordEvent` + `recall`
 - [x] Dropped the `Map<userId, Memorai>` instance-per-user workaround
 - [x] Custom suite passes; LoCoMo smoke pipeline runs end-to-end
+
+### Phase 7: Production Hardening & Next-Gen Memory (shipped in 0.5.x)
+
+**7.1 — Adaptive & Multi-Pathway Retrieval (S1)**
+- [x] `QueryIntent` classification (`identity` / `temporal` / `procedural` / `factual` / `multi-hop`)
+- [x] `RuleBasedIntentClassifier` (zero-latency) + pluggable `IntentClassifier` interface
+- [x] Pathway pruning by intent to reduce latency and noise
+
+**7.2 — Procedural Memory & Skills (S2)**
+- [x] `EventContent.kind: "tool_call"` and `"plan_step"`
+- [x] `SkillExtractor` / `SkillStore` for reusable tool patterns
+- [x] `recallSkills(query)` for procedural memory lookup
+
+**7.3 — Generative Reflection (S5)**
+- [x] `Memorai.reflect()` — LLM generates insights from recent event patterns
+- [x] Insights persisted as new `MemoryEvent` state events
+
+**7.4 — Bi-Temporal Model (S6)**
+- [x] `TemporalValidity` on `MemoryEvent` (`validStart` / `validEnd` / `recordedAt`)
+- [x] `RecallOptions.validAt` for "what was true at time T" queries
+- [x] `EventStore.queryEventsByValidTime` in all three store backends
+
+**7.5 — Sleep Consolidation (S7)**
+- [x] `Memorai.sleep()` — periodic pass over memory for merging, forgetting, skill extraction, and reflection
+- [x] Configurable via `SleepOptions`
+
+**7.6 — Structured Episodic Recall (S8)**
+- [x] `Memorai.recallNarrative()` — returns a narrative arc with roles (setup/trigger/response/climax/resolution)
+- [x] `NarrativeBuilder` with LLM and heuristic fallback
+
+**7.7 — Production Defaults**
+- [x] `AutoVectorIndex` — lazily picks `hnswlib-node` → `usearch` → `hnswlib-wasm` → brute-force
+- [x] `AutoReranker` — lazily picks `TransformersReranker` when `@xenova/transformers` is present
+- [x] Browser default `EventStore` is `IndexedDBEventStore`; Node default remains `InMemoryEventStore` (opt-in SQLite)
+- [x] `recall()` defaults `resolveTime` to `true` (configurable via `MemoraiConfig.defaultResolveTime`)
+
+**7.8 — Build & Distribution**
+- [x] ESM + CJS dual build (`dist/` + `dist-cjs/`)
+- [x] Full package ~56 KB gzipped; subpath exports for smaller bundles
 
 ---
 

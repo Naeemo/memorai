@@ -12,12 +12,12 @@ interface SearchResult {
 }
 
 let currentResults: SearchResult[] = [];
-let selectedId: string | null = null;
 
 async function init() {
   await loadStats();
   setupSearch();
   setupFilters();
+  document.getElementById("export-all-btn")!.addEventListener("click", exportAllMarkdown);
 }
 
 async function loadStats() {
@@ -26,6 +26,59 @@ async function loadStats() {
 
   document.getElementById("total-conversations")!.textContent = `${stats.conversations} conversations`;
   document.getElementById("total-messages")!.textContent = `${stats.messages} messages`;
+}
+
+async function exportAllMarkdown() {
+  const btn = document.getElementById("export-all-btn") as HTMLButtonElement;
+  btn.disabled = true;
+  btn.textContent = "Exporting...";
+
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "SEARCH", query: "", topK: 10000 });
+    if (result.error) throw new Error(result.error);
+
+    const byConv = new Map<string, typeof result.memories>();
+    for (const m of result.memories) {
+      const convId = m.conversationId || "unknown";
+      if (!byConv.has(convId)) byConv.set(convId, []);
+      byConv.get(convId)!.push(m);
+    }
+
+    const sections: string[] = [];
+    for (const [convId, messages] of byConv) {
+      const sorted = [...messages].sort((a, b) => a.at - b.at);
+      const title = sorted[0]?.summary || "ChatGPT Conversation";
+      const date = new Date(sorted[0]?.at ?? Date.now()).toISOString();
+      const body = sorted
+        .map((m) => `**${m.actor}** · ${new Date(m.at).toLocaleString()}\n\n${m.text || m.summary || ""}`)
+        .join("\n\n---\n\n");
+
+      sections.push(`---
+title: "${title.replace(/"/g, '\\"')}"
+date: ${date}
+url: https://chatgpt.com/c/${convId}
+---
+
+# ${title}
+
+${body}
+`);
+    }
+
+    const markdown = sections.join("\n\n");
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chatgpt-export-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(`Export failed: ${(err as Error).message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Export All";
+  }
 }
 
 function setupSearch() {
@@ -130,7 +183,6 @@ function renderResults(results: SearchResult[]) {
 }
 
 (window as any).selectResult = function (id: string) {
-  selectedId = id;
   document.querySelectorAll(".result-item").forEach((el) => el.classList.remove("active"));
   document.querySelector(`[data-id="${id}"]`)?.classList.add("active");
 

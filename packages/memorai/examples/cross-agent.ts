@@ -64,72 +64,47 @@ const proactiveAgent = new Memorai({
 // ─── Scenario ───
 
 async function scenario() {
-  // Proactive agent detects a trigger
-  await proactiveAgent.write({
-    raw: {
-      content: { kind: "observation", text: "User has been idle for 10 minutes" },
-      text: "User has been idle for 10 minutes",
-    },
-    annotations: {
-      summary: "User has been idle for 10 minutes",
-      tags: ["idle", "trigger"],
-      salienceScore: 0.9,
-      modality: ["text"],
-    },
-  });
+  // Proactive agent detects triggers
+  await proactiveAgent.recordEvent({
+    at: Date.now(),
+    actor: "proactive-bot",
+    content: { kind: "observation", text: "User has been idle for 10 minutes" },
+    tags: ["idle", "trigger"],
+    salienceHint: 0.9,
+  }).nodes;
 
-  // Proactive agent detects another trigger
-  await proactiveAgent.write({
-    raw: {
-      content: { kind: "observation", text: "User opened Slack" },
-      text: "User opened Slack",
-    },
-    annotations: {
-      summary: "User opened Slack",
-      tags: ["slack", "trigger"],
-      salienceScore: 0.7,
-      modality: ["text"],
-    },
-  });
+  await proactiveAgent.recordEvent({
+    at: Date.now(),
+    actor: "proactive-bot",
+    content: { kind: "observation", text: "User opened Slack" },
+    tags: ["slack", "trigger"],
+    salienceHint: 0.7,
+  }).nodes;
 
   // Reasoning agent adds context
-  await reasoningAgent.write({
-    raw: {
-      content: {
-        kind: "observation",
-        text: "User is preparing for a meeting — context from calendar",
-      },
-      text: "User is preparing for a meeting — context from calendar",
-    },
-    annotations: {
-      summary: "User is preparing for a meeting — context from calendar",
-      tags: ["meeting", "context"],
-      salienceScore: 0.8,
-      modality: ["text"],
-    },
-  });
+  await reasoningAgent.recordEvent({
+    at: Date.now(),
+    actor: "reasoning-bot",
+    content: { kind: "observation", text: "User is preparing for a meeting — context from calendar" },
+    tags: ["meeting", "context"],
+    salienceHint: 0.8,
+  }).nodes;
 
   // Proactive agent queries: what should I do?
-  const triggers = await proactiveAgent.retrieve({
+  const triggers = await proactiveAgent.recall("What should I suggest to the user?", {
     strategy: "factual",
-    text: "What should I suggest to the user?",
     topK: 5,
   });
   console.log("\n[Proactive] Triggers found:");
-  triggers.nodes.forEach((n) =>
-    console.log(`  - ${n.annotations.summary ?? n.raw.text} (${n.level})`),
-  );
+  triggers.memories.forEach((m) => console.log(`  - ${m.summary} (${m.level})`));
 
   // Reasoning agent queries: what's the overall picture?
-  const picture = await reasoningAgent.retrieve({
+  const picture = await reasoningAgent.recall("What is the user doing today?", {
     strategy: "inferential",
-    text: "What is the user doing today?",
     topK: 5,
   });
   console.log("\n[Reasoning] Big picture:");
-  picture.nodes.forEach((n) =>
-    console.log(`  - ${n.annotations.summary ?? n.raw.text} (${n.level})`),
-  );
+  picture.memories.forEach((m) => console.log(`  - ${m.summary} (${m.level})`));
 
   // Both agents see the same data but at different granularity
   console.log("\nShared storage has:");

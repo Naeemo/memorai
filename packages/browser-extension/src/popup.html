@@ -48,6 +48,22 @@
       <a href="./search.html" target="_blank" class="btn-secondary">Open Search Page</a>
       <button id="settings-btn" class="btn-ghost">Settings</button>
     </section>
+
+    <!-- Settings Panel -->
+    <section id="settings-panel" class="settings hidden">
+      <div class="setting-row">
+        <label for="ollama-url">Ollama URL</label>
+        <input type="text" id="ollama-url" placeholder="http://localhost:11434">
+      </div>
+      <div class="setting-row">
+        <label for="ollama-model">Embedding Model</label>
+        <input type="text" id="ollama-model" placeholder="nomic-embed-text">
+      </div>
+      <div class="setting-row">
+        <button id="save-settings-btn" class="btn-primary">Save</button>
+        <button id="clear-data-btn" class="btn-danger">Clear All Data</button>
+      </div>
+    </section>
   </div>
 
   <script type="module" src="./popup/index.ts"></script>

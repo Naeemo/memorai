@@ -206,6 +206,45 @@ describe("Memorai.recall with temporal resolution", () => {
     await memory.close();
   });
 
+  test("resolveTime defaults to true", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+    });
+    const now = Date.now();
+    await memory.recordEvents([
+      { at: now - 2 * DAY_MS, actor: "u", content: { kind: "message", text: "older note" } },
+      { at: now - DAY_MS, actor: "u", content: { kind: "message", text: "yesterday note" } },
+    ]).nodes;
+
+    // No explicit resolveTime — should behave like resolveTime: true.
+    const result = await memory.recall("what did I do yesterday?", { topK: 5 });
+    expect(result.memories.length).toBeGreaterThan(0);
+    expect(result.memories.every((m) => m.summary === "yesterday note")).toBe(true);
+    await memory.close();
+  });
+
+  test("resolveTime can be disabled via config", async () => {
+    const memory = new Memorai({
+      storage: new MemoryAdapter(),
+      embedding: new MockEmbeddingService(),
+      evolution: { mode: "manual" },
+      defaultResolveTime: false,
+    });
+    const now = Date.now();
+    await memory.recordEvents([
+      { at: now - 2 * DAY_MS, actor: "u", content: { kind: "message", text: "older note" } },
+      { at: now - DAY_MS, actor: "u", content: { kind: "message", text: "yesterday note" } },
+    ]).nodes;
+
+    const result = await memory.recall("what did I do yesterday?", { topK: 5 });
+    // Without resolution, the query matches both notes semantically/BM25.
+    expect(result.memories.some((m) => m.summary === "older note")).toBe(true);
+    expect(result.memories.some((m) => m.summary === "yesterday note")).toBe(true);
+    await memory.close();
+  });
+
   test("low-confidence resolution is dropped even with resolveTime: true", async () => {
     const memory = new Memorai({
       storage: new MemoryAdapter(),

@@ -1,7 +1,8 @@
 // ─── Service Worker: Memorai instance + import coordination + search service ───
 
 import { Memorai, IndexedDBAdapter, OllamaEmbeddingService } from "memorai";
-import type { Event, RecordHandle } from "memorai";
+import { runImport } from "./importer/index.js";
+import type { ImportProgress } from "./importer/types.js";
 
 // ─── 1. Initialize Memorai ───
 
@@ -10,14 +11,16 @@ let memory: Memorai | null = null;
 async function getMemory(): Promise<Memorai> {
   if (memory) return memory;
 
+  const { ollamaUrl, ollamaModel } = await chrome.storage.local.get(["ollamaUrl", "ollamaModel"]);
+
   memory = new Memorai({
     storage: new IndexedDBAdapter({
       dbName: "memorai-chatgpt",
-      namespace: "browser-extension" 
+      namespace: "browser-extension"
     }),
     embedding: new OllamaEmbeddingService({
-      baseURL: "http://localhost:11434",
-      model: "nomic-embed-text",
+      baseURL: ollamaUrl ?? "http://localhost:11434",
+      model: ollamaModel ?? "nomic-embed-text",
     }),
     agentProfile: {
       agentId: "browser-extension",
@@ -40,16 +43,7 @@ async function getMemory(): Promise<Memorai> {
 
 // ─── 2. Import State ───
 
-interface ImportState {
-  total: number;
-  completed: number;
-  skipped: number;
-  failed: number;
-  isRunning: boolean;
-  error?: string;
-}
-
-let importState: ImportState = {
+let importState: ImportProgress = {
   total: 0,
   completed: 0,
   skipped: 0,
@@ -89,7 +83,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ─── 4. Import Logic ───
 
-async function startImport(token: string): Promise<ImportState> {
+async function startImport(token: string): Promise<ImportProgress> {
   if (importState.isRunning) return importState;
 
   importAbort = new AbortController();
@@ -97,49 +91,21 @@ async function startImport(token: string): Promise<ImportState> {
 
   try {
     const mem = await getMemory();
-    const conversations = await fetchAllConversations(token, importAbort.signal);
-
-    importState.total = conversations.length;
-
-    for (const conv of conversations) {
-      if (importAbort.signal.aborted) break;
-
-      try {
-        const detail = await fetchConversationDetail(token, conv.id, importAbort.signal);
-        const events = mapConversationToEvents(detail, conv);
-
-        let imported = 0;
-        let skipped = 0;
-
-        for (const event of events) {
-          const exists = await checkExists(mem, event);
-          if (exists) {
-            skipped++;
-            continue;
-          }
-
-          await mem.recordEvent(event);
-          imported++;
+    const result = await runImport(
+      mem,
+      token,
+      { signal: importAbort.signal },
+      (progress) => {
+        importState = progress;
+        if (progress.total > 0) {
+          updateBadge(progress.completed, progress.total);
         }
+      },
+    );
 
-        importState.completed++;
-        importState.skipped += skipped;
-
-        // Update badge
-        updateBadge(importState.completed, importState.total);
-      } catch (err) {
-        importState.failed++;
-        console.error(`Import failed for conversation ${conv.id}:`, err);
-      }
-    }
-
-    importState.isRunning = false;
     clearBadge();
-
-    // Save last import time
     await chrome.storage.local.set({ lastImportAt: Date.now() });
-
-    return importState;
+    return result;
   } catch (err) {
     importState.isRunning = false;
     importState.error = (err as Error).message;
@@ -148,105 +114,13 @@ async function startImport(token: string): Promise<ImportState> {
   }
 }
 
-async function cancelImport(): Promise<ImportState> {
+async function cancelImport(): Promise<ImportProgress> {
   importAbort?.abort();
   importState.isRunning = false;
   return importState;
 }
 
-// ─── 5. ChatGPT API ───
-
-async function fetchAllConversations(token: string, signal: AbortSignal): Promise<Array<{ id: string; title: string; update_time: number }>> {
-  const conversations: Array<{ id: string; title: string; update_time: number }> = [];
-  let offset = 0;
-  const limit = 28;
-
-  while (!signal.aborted) {
-    const res = await fetch(`https://chatgpt.com/backend-api/conversations?offset=${offset}&limit=${limit}&order=updated`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal,
-    });
-
-    if (!res.ok) throw new Error(`Fetch conversations failed: ${res.status}`);
-
-    const data = await res.json();
-    if (!data.items || data.items.length === 0) break;
-
-    conversations.push(...data.items);
-    offset += data.items.length;
-
-    if (!data.has_more) break;
-  }
-
-  return conversations;
-}
-
-async function fetchConversationDetail(token: string, id: string, signal: AbortSignal): Promise<ChatGPTConversation> {
-  const res = await fetch(`https://chatgpt.com/backend-api/conversation/${id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal,
-  });
-
-  if (!res.ok) throw new Error(`Fetch detail failed: ${res.status}`);
-  return res.json();
-}
-
-// ─── 6. Mapping ───
-
-interface ChatGPTMessage {
-  id: string;
-  author: { role: "user" | "assistant" | "system" };
-  content: { content_type: "text"; parts: string[] };
-  create_time: number;
-}
-
-interface ChatGPTConversation {
-  id: string;
-  title: string;
-  create_time: number;
-  update_time: number;
-  mapping: Record<string, { message?: ChatGPTMessage; parent?: string; children: string[] }>;
-}
-
-function mapConversationToEvents(conv: ChatGPTConversation, meta: { id: string; title: string }): Event[] {
-  const events: Event[] = [];
-
-  for (const node of Object.values(conv.mapping)) {
-    if (!node.message) continue;
-    const msg = node.message;
-    if (msg.author.role === "system") continue;
-
-    const text = msg.content.parts[0] ?? "";
-    if (!text.trim()) continue;
-
-    events.push({
-      at: msg.create_time * 1000,
-      actor: msg.author.role,
-      content: { kind: "observation", text: text.slice(0, 8000) },
-      tags: ["chatgpt", meta.title],
-      id: `chatgpt-msg:${msg.id}`,
-      context: `conversation:${meta.id}`,
-      salienceHint: 0.7,
-    });
-  }
-
-  return events;
-}
-
-// ─── 7. Dedup ───
-
-async function checkExists(mem: Memorai, event: Event): Promise<boolean> {
-  if (!event.id) return false;
-
-  try {
-    const result = await mem.recall(event.id, { topK: 1, level: "segment" });
-    return result.memories.some((m) => m.id === event.id);
-  } catch {
-    return false;
-  }
-}
-
-// ─── 8. Search ───
+// ─── 5. Search ───
 
 async function searchChatGPT(query: string, topK = 10): Promise<{ memories: any[] }> {
   const mem = await getMemory();
@@ -266,27 +140,31 @@ async function searchChatGPT(query: string, topK = 10): Promise<{ memories: any[
   };
 }
 
-// ─── 9. Ollama Check ───
+// ─── 6. Ollama Check ───
 
 async function checkOllama(): Promise<{ ok: boolean; message: string }> {
+  const { ollamaUrl, ollamaModel } = await chrome.storage.local.get(["ollamaUrl", "ollamaModel"]);
+  const baseURL = ollamaUrl ?? "http://localhost:11434";
+  const model = ollamaModel ?? "nomic-embed-text";
+
   try {
-    const res = await fetch("http://localhost:11434/api/tags", { method: "GET" });
+    const res = await fetch(`${baseURL}/api/tags`, { method: "GET" });
     if (!res.ok) return { ok: false, message: "Ollama is running but returned an error" };
 
     const data = await res.json();
-    const hasModel = data.models?.some((m: any) => m.name?.includes("nomic-embed-text"));
+    const hasModel = data.models?.some((m: any) => m.name?.includes(model));
 
     if (!hasModel) {
-      return { ok: false, message: "Ollama is running but nomic-embed-text is not installed. Run: ollama pull nomic-embed-text" };
+      return { ok: false, message: `Ollama is running but ${model} is not installed. Run: ollama pull ${model}` };
     }
 
-    return { ok: true, message: "Ollama is ready with nomic-embed-text" };
+    return { ok: true, message: `Ollama is ready with ${model}` };
   } catch {
-    return { ok: false, message: "Ollama is not running. Start it with: ollama serve" };
+    return { ok: false, message: `Ollama is not reachable at ${baseURL}. Start it with: ollama serve` };
   }
 }
 
-// ─── 10. Stats & Clear ───
+// ─── 7. Stats & Clear ───
 
 async function getStats(): Promise<{ conversations: number; messages: number; lastImportAt: number | null }> {
   const mem = await getMemory();
@@ -314,7 +192,7 @@ async function clearAll(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-// ─── 11. Badge Helpers ───
+// ─── 8. Badge Helpers ───
 
 function updateBadge(current: number, total: number) {
   chrome.action.setBadgeText({ text: `${Math.round((current / total) * 100)}%` });
@@ -325,6 +203,18 @@ function clearBadge() {
   chrome.action.setBadgeText({ text: "" });
 }
 
-// ─── 12. Startup ───
+// ─── 9. Settings Watch ───
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && (changes.ollamaUrl || changes.ollamaModel)) {
+    // Reset memory so the next getMemory() picks up new Ollama config.
+    if (memory) {
+      memory.close().catch(console.error);
+      memory = null;
+    }
+  }
+});
+
+// ─── 10. Startup ───
 
 getMemory().catch(console.error);

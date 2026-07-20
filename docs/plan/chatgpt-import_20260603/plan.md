@@ -3,7 +3,7 @@
 **Track ID:** chatgpt-import_20260603
 **Spec:** [spec.md](./spec.md)
 **Created:** 2026-06-03
-**Status:** [ ] Not Started
+**Status:** [~] In Progress
 
 ---
 
@@ -36,10 +36,10 @@ Set up the Chrome extension project structure and Memorai integration.
 Implement ChatGPT frontend API client to fetch conversation history.
 
 ### Tasks
-- [ ] Task 2.1: Create `src/importer/chatgpt-api.ts` — read `access_token` from page context (via `chrome.scripting.executeScript` or `window.__remixContext`)
-- [ ] Task 2.2: Implement `fetchConversations(offset, limit)` — calls `GET /backend-api/conversations`
-- [ ] Task 2.3: Implement `fetchConversationDetail(id)` — calls `GET /backend-api/conversation/{id}`
-- [ ] Task 2.4: Add error handling for unauthenticated users, token expiry, and rate limiting
+- [ ] Task 2.1: Read `access_token` from page context (via `chrome.scripting.executeScript` or `window.__remixContext`) — still needed for automated import; popup currently passes token manually
+- [x] Task 2.2: Implement `fetchConversations(offset, limit)` — calls `GET /backend-api/conversations`
+- [x] Task 2.3: Implement `fetchConversationDetail(id)` — calls `GET /backend-api/conversation/{id}`
+- [x] Task 2.4: Add error handling for unauthenticated users, token expiry, and rate limiting
 - [ ] Task 2.5: Cache conversation list in `chrome.storage.session` to avoid re-fetching during pagination
 
 ### Verification
@@ -54,17 +54,18 @@ Implement ChatGPT frontend API client to fetch conversation history.
 Build the mapping, deduplication, and batch import logic.
 
 ### Tasks
-- [ ] Task 3.1: Create `src/importer/mapper.ts` — map ChatGPT message schema to Memorai `Event` with `meta.eventId` prefixed as `chatgpt-msg:{id}`
-- [ ] Task 3.2: Create `src/importer/dedup.ts` — query Memorai for existing `eventId` before writing, skip duplicates
-- [ ] Task 3.3: Implement `importConversations(conversations)` — iterate list, fetch detail, map, dedup, write via `recordEvent()`
-- [ ] Task 3.4: Implement `src/importer/progress.ts` — track total/completed/skipped/failed counts, support cancellation via `AbortController`
+- [x] Task 3.1: Create `src/importer/mapper.ts` — map ChatGPT message schema to Memorai `Event` with `meta.eventId` prefixed as `chatgpt-msg:{id}`
+- [x] Task 3.2: Create `src/importer/dedup.ts` — query Memorai for existing `eventId` before writing, skip duplicates
+- [x] Task 3.3: Implement `importConversations(conversations)` — iterate list, fetch detail, map, dedup, write via `recordEvent()`
+- [x] Task 3.4: Implement `src/importer/pipeline.ts` — track total/completed/skipped/failed counts, support cancellation via `AbortController`
 - [ ] Task 3.5: Add batching — process 10 messages at a time to avoid blocking the service worker event loop
 
 ### Verification
-- [ ] Import 10 conversations → all messages stored in IndexedDB
-- [ ] Re-import same 10 conversations → all skipped (dedup works)
-- [ ] Import can be cancelled mid-flight, partial data preserved
-- [ ] Import 100 messages completes in < 3 minutes (embedding included)
+- [ ] Import 10 conversations → all messages stored in IndexedDB *(manual: load extension in Chrome, click Import)*
+- [ ] Re-import same 10 conversations → all skipped (dedup works) *(manual: run Import twice)*
+- [ ] Import can be cancelled mid-flight, partial data preserved *(manual: start Import, click Cancel)*
+- [ ] Import 100 messages completes in < 3 minutes (embedding included) *(manual: time a large import)*
+- [x] Mapper unit tests pass (`packages/browser-extension/tests/importer.test.ts`)
 
 ---
 

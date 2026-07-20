@@ -1,9 +1,30 @@
 # Memorai — World-Class Optimization Plan
 
-> **Date:** 2026-05-21
+> **Date:** 2026-05-21 ｜ **Updated:** 2026-07-16
 > **Baseline:** v0.5.0 (LongMemEval 92% via Kimi K2.6, LoCoMo conv-26 33.55%)
 > **Goal:** Close the benchmark gap with Zep/Graphiti and become *the* canonical TypeScript agent memory library
 
+## Status Update (2026-07-16)
+
+**Surprise finding:** The Phase A features (temporal anchors, weighted graph paths, event cross-linking, LLM temporal resolution) are **already implemented** in v0.5.0. The infrastructure is complete:
+
+- ✅ `TemporalAnchor` type + `extractTemporalAnchors` (LightExtractor + LLMExtractor)
+- ✅ `temporalAnchorPathway` in retrieval engine
+- ✅ `resolveRelativeToAnchor` (Tier 2) + `resolveTemporalViaLLM` (Tier 3)
+- ✅ `queryPathsWeighted` in all three graph backends
+- ✅ `MemoryEvent.relatedEventIds` + `LLMEventIdentifier` population
+- ✅ `graphPathway` uses confidence-weighted best-first multi-hop walk
+
+**Fix applied (2026-07-16):** `LightExtractor.extractTemporalAnchors` was not filling `start`/`end` fields, causing `resolveRelativeToAnchor` to fall back to `now`. Fixed to populate from `event.at`.
+
+**Default applied (2026-07-18):** `recall()` now defaults `resolveTime` to `true` (configurable via `MemoraiConfig.defaultResolveTime`). Temporal expressions are resolved automatically instead of requiring an explicit opt-in.
+
+**Open question:** If Phase A infrastructure is complete, why is LoCoMo still at 33.55%? Possible causes:
+1. Benchmark configuration (extractor/identifier/reranker choice, parameter tuning)
+2. Integration gaps (HNSW not default, pathway weights not tuned)
+3. Need to run fresh benchmark with current code to establish new baseline
+
+---
 ---
 
 ## Executive Summary
@@ -252,24 +273,41 @@ Memorai's gaps:
 
 ## Part 4 — Priority Matrix
 
-| Item | LoCoMo Impact | Effort | Risk | Priority |
-|------|--------------|--------|------|----------|
-| A1 Temporal anchors | +10-15pp | 2w | Low | **P0** |
-| A2 Weighted graph paths | +5-8pp | 1w | Low | **P0** |
-| A3 Event cross-linking | +5-10pp | 1w | Medium | **P0** |
-| A4 LLM temporal resolution | +3-5pp | 1w | Low | **P0** |
-| B1 WASM vector search | — | 2w | Medium | **P1** |
-| B2 Persistent graph | — | 1w | Low | **P1** |
-| B3 Streaming ingest | — | 1w | Medium | **P1** |
-| C1 Cross-modal memory | — | 2w | High | **P2** |
-| C2 Observability | — | 1w | Low | **P2** |
-| C3 Multi-agent federation | — | 1w | High | **P2** |
-| C4 Quantization | — | 1w | Low | **P2** |
-| D1 Full benchmarks | — | 1w | Low | **P3** |
-| D2 Comparison docs | — | 1w | Low | **P3** |
-| D3 DX polish | — | 1w | Low | **P3** |
+| Item | LoCoMo Impact | Effort | Risk | Status | Priority |
+|------|--------------|--------|------|--------|----------|
+| A1 Temporal anchors | +10-15pp | 2w | Low | ✅ **Implemented** — `start`/`end` fix applied 2026-07-16 | **P0 — Verify** |
+| A2 Weighted graph paths | +5-8pp | 1w | Low | ✅ **Implemented** — `queryPathsWeighted` + `graphPathway` | **P0 — Verify** |
+| A3 Event cross-linking | +5-10pp | 1w | Medium | ✅ **Implemented** — `relatedEventIds` + identifier support | **P0 — Verify** |
+| A4 LLM temporal resolution | +3-5pp | 1w | Low | ✅ **Implemented** — `resolveTemporalViaLLM` | **P0 — Verify** |
+| B1 WASM vector search | — | 2w | Medium | 🔜 Not started | **P1** |
+| B2 Persistent graph | — | 1w | Low | 🔜 Not started | **P1** |
+| B3 Streaming ingest | — | 1w | Medium | 🔜 Not started | **P1** |
+| C1 Cross-modal memory | — | 2w | High | 🔜 Not started | **P2** |
+| C2 Observability | — | 1w | Low | 🔜 Not started | **P2** |
+| C3 Multi-agent federation | — | 1w | High | 🔜 Not started | **P2** |
+| C4 Quantization | — | 1w | Low | 🔜 Not started | **P2** |
+| D1 Full benchmarks | — | 1w | Low | 🔜 Not started | **P3** |
+| D2 Comparison docs | — | 1w | Low | 🔜 Not started | **P3** |
+| D3 DX polish | — | 1w | Low | 🔜 Not started | **P3** |
 
-**Target**: After Phase A, LoCoMo conv-26 should reach 55-65%. After Phases A+B, 65-75% (Zep competitive range). Phases C+D cement the "world-class" positioning through differentiators no competitor matches.
+### P0 Action: Verify Phase A Infrastructure (1 week)
+
+Since A1-A4 are already implemented, the immediate priority is to **run benchmarks and verify** whether the infrastructure works as expected:
+
+1. **Run LoCoMo conv-26 with current code** — establish new baseline after `start`/`end` fix
+2. **Profile which questions still fail** — temporal? multi-hop? contradiction?
+3. **Check if pathways are enabled in default config** — `temporalAnchorPathway`, `graphPathway` weights
+4. **Tune RRF weights** — graph vs semantic vs temporal pathway fusion
+
+If the score doesn't improve significantly (>5pp), the issue is likely:
+- Benchmark configuration (wrong extractor/identifier/reranker combo)
+- Integration gap (pathways not wired in default `RetrievalEngine` config)
+- Parameter tuning (pathway weights, topK, threshold values)
+
+If the score improves to 45-55%, the remaining gap is likely:
+- Full LoCoMo (not conv-26) — need to run complete benchmark
+- Persistent graph backend for larger datasets
+- Cross-encoder reranker replacing LLMReranker
 
 ---
 
